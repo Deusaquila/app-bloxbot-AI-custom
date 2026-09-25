@@ -60,6 +60,13 @@ export const JobServiceLive = Layer.effect(
         ),
       );
 
+    const emit = (jobId: string, input: Parameters<typeof events.emit>[0]) =>
+      events.emit(input).pipe(
+        Effect.mapError(
+          (cause) => new JobServiceError({ message: `Failed to persist event for job ${jobId}`, jobId, cause }),
+        ),
+      );
+
     return JobService.of({
       create: (input) =>
         Effect.gen(function* () {
@@ -81,7 +88,7 @@ export const JobServiceLive = Layer.effect(
           );
           yield* persist(job);
           yield* Ref.update(jobs, (state) => new Map(state).set(job.id, job));
-          yield* events.emit({ jobId: job.id, type: "job.created", entityType: "job", entityId: job.id });
+          yield* emit(job.id, { jobId: job.id, type: "job.created", entityType: "job", entityId: job.id });
           return job;
         }),
       get,
@@ -99,7 +106,7 @@ export const JobServiceLive = Layer.effect(
           const next: Job = { ...current, state, updatedAt: now() };
           yield* persist(next);
           yield* Ref.update(jobs, (jobsState) => new Map(jobsState).set(jobId, next));
-          yield* events.emit({
+          yield* emit(jobId, {
             jobId,
             type: "job.state_changed",
             entityType: "job",
@@ -108,10 +115,7 @@ export const JobServiceLive = Layer.effect(
           });
           return next;
         }),
-      list: Ref.get(jobs).pipe(
-        Effect.map((state) => [...state.values()]),
-        Effect.mapError((cause) => new JobServiceError({ message: "Failed to list jobs", cause })),
-      ),
+      list: Ref.get(jobs).pipe(Effect.map((state) => [...state.values()])),
     });
   }),
 );
