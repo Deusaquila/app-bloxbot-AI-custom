@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Context, Effect, Layer } from "effect";
 
 import type { SystemEvent } from "../../src/types/job";
-import { JobStore } from "./JobStore";
+import { JobStore, type JobStoreError } from "./JobStore";
 
 export interface EmitEventInput {
   jobId: string;
@@ -14,8 +14,8 @@ export interface EmitEventInput {
 }
 
 export interface EventStoreApi {
-  readonly emit: (input: EmitEventInput) => Effect.Effect<SystemEvent, unknown>;
-  readonly list: Effect.Effect<readonly SystemEvent[], unknown>;
+  readonly emit: (input: EmitEventInput) => Effect.Effect<SystemEvent, JobStoreError>;
+  readonly list: Effect.Effect<readonly SystemEvent[], JobStoreError>;
 }
 
 export class EventStore extends Context.Tag("EventStore")<EventStore, EventStoreApi>() {}
