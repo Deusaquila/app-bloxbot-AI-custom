@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFile, mkdir, stat } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { copyFile, mkdir } from "node:fs/promises";
 import { basename, join } from "node:path";
 
 import { Context, Data, Effect, Layer } from "effect";
@@ -29,9 +30,14 @@ export class ArtifactService extends Context.Tag("ArtifactService")<
   ArtifactServiceApi
 >() {}
 
-async function hashFile(path: string): Promise<string> {
-  const { readFile } = await import("node:fs/promises");
-  return createHash("sha256").update(await readFile(path)).digest("hex");
+function hashFile(path: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const hash = createHash("sha256");
+    const stream = createReadStream(path);
+    stream.on("error", reject);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve(hash.digest("hex")));
+  });
 }
 
 export const ArtifactServiceLive = Layer.succeed(
@@ -44,16 +50,13 @@ export const ArtifactServiceLive = Layer.succeed(
           const id = randomUUID();
           const destination = join(input.destinationDirectory, `${id}-${basename(input.sourcePath)}`);
           await copyFile(input.sourcePath, destination);
-          await stat(destination);
           return {
             id,
             jobId: input.jobId,
             type: input.type,
             path: destination,
             ...(input.parentArtifactId ? { parentArtifactId: input.parentArtifactId } : {}),
-            ...(input.createdByOperationId
-              ? { createdByOperationId: input.createdByOperationId }
-              : {}),
+            ...(input.createdByOperationId ? { createdByOperationId: input.createdByOperationId } : {}),
             hash: await hashFile(destination),
             createdAt: new Date().toISOString(),
           };
