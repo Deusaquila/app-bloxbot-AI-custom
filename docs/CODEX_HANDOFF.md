@@ -1,343 +1,1 @@
-# BloxBot autonomous asset pipeline â€” Codex handoff
-
-## Integration update (2026-09-26)
-
-See [V1_INTEGRATION.md](V1_INTEGRATION.md) for the implemented execution path, verified checks, and exact remaining live acceptance steps. The historical implementation notes below describe the starting point; Gate 2 is still unverified.
-
-## Mission
-
-You are the implementation agent for this repository. Continue implementing the autonomous Blender â†’ Roblox asset pipeline in this repository. Work autonomously until the V1 milestone below is complete. Do not ask for routine approval. Ask the user only when genuinely blocked by missing credentials/environment/user action, or when a decision would materially change product direction.
-
-The user prioritizes:
-1. self-running operation and high success rate,
-2. efficiency: low latency, compute, tokens, retries, and user input,
-3. lightweight safety/versioning rather than heavy infrastructure.
-
-Keep changes on `feature/v1-job-core` and the existing draft PR. Do **not** merge to `main` without explicit user approval.
-
-## V1 acceptance test
-
-Input: `horse.fbx`
-
-Prompt:
-
-> GÃ¶r den svart och dubbelt sÃ¥ stor.
-
-Required proof:
-1. FBX is read successfully.
-2. Color change is actually executed.
-3. Size change is actually executed.
-4. Result is exported/imported into Roblox Studio.
-5. Roblox-side evidence verifies the intended objective result.
-
-V1 is objective/deterministic. Do not add perceptual AI evaluation yet.
-
-A successful import alone is **not** task success. Completion requires Gate 1 + Gate 2 + all mandatory requirements.
-
-## Architectural contract
-
-Core loop:
-
-`Compile â†’ Plan â†’ Execute â†’ Observe â†’ Evaluate â†’ Correct`
-
-Input flow:
-
-`Prompt + Asset â†’ Asset Inspector â†’ Task Compiler â†’ Policy/Plan â†’ Execution â†’ Gate 1 â†’ Export â†’ Roblox Import â†’ Gate 2 â†’ Requirement Evaluation â†’ Result`
-
-Longer-term learning sits above this critical path and is deliberately out of V1.
-
-### Hard boundaries
-
-- **JobService** owns job state transitions. AI must never mutate state directly.
-- **OpenCode is a bounded reasoning service**, not the orchestrator or source of truth.
-- **ChatSession != Job**.
-- MCP tools are transport/tooling, not domain capabilities.
-- Execution Engine should be dumb: execute a validated DAG and capture results.
-- Deterministic evidence outranks AI/perceptual evidence for objective facts.
-- Corrections should target the smallest failing requirement and rerun only affected DAG nodes.
-- Prefer idempotent capabilities; known no-op outcomes may return `NO_OP_SUCCESS`.
-- Keep control-plane persistence separate from legacy `bloxbot-store.json`.
-
-### Service direction
-
-Domain services:
-- `BlenderService`
-- `RobloxService`
-- `AssetInspector`
-- `ArtifactService`
-- `ExecutionService`
-- `JobService`
-
-Transport/runtime adapters may later include:
-- direct deterministic Blender `bpy`
-- Blender MCP
-- Roblox Studio MCP
-- OpenCode/AI-generated procedures
-
-The rest of the control plane should not care which adapter implements a capability.
-
-## Job state machine
-
-States:
-
-`CREATED â†’ INSPECTING â†’ COMPILING â†’ PLANNING â†’ EXECUTING â†’ VERIFYING_GATE_1 â†’ EXPORTING â†’ IMPORTING â†’ VERIFYING_GATE_2 â†’ EVALUATING â†’ COMPLETED`
-
-Failure/correction states:
-- `FAILED`
-- `CANCELLED`
-- `CORRECTING`
-
-Correction can be entered from Gate 1, Gate 2, or evaluation, then returns to execution.
-
-Principle for initial V1: **fail correctly before learning to repair**.
-
-## Requirement model
-
-Prompt requirements receive stable IDs and propagate through:
-prompt â†’ plan â†’ operation â†’ Blender evidence â†’ export â†’ Roblox evidence â†’ final evaluation.
-
-Initial V1 requirements:
-- `material.base_color` â†’ black `[0,0,0,1]`
-- `geometry.relative_size` â†’ factor `2`
-
-Requirement lifecycle:
-- PENDING
-- PLANNED
-- EXECUTED
-- GATE_1_VERIFIED
-- GATE_2_VERIFIED
-- PASSED
-- FAILED
-
-## Minimal V1 capabilities
-
-- `asset.inspect`
-- `material.set_base_color`
-- `transform.scale_uniform`
-- `asset.verify_material`
-- `asset.verify_dimensions`
-- `asset.export_fbx`
-- `roblox.import_asset`
-- `roblox.inspect_asset`
-
-Intended DAG:
-
-`inspect â†’ (set_color || scale) â†’ (verify_color || verify_dimensions) â†’ export â†’ Roblox import â†’ Roblox inspect`
-
-Independent nodes should run concurrently.
-
-## Gates
-
-### Gate 1 â€” before Roblox
-
-Primarily deterministic:
-- material valid
-- expected dimensions/scale valid
-- geometry/export readiness
-- FBX export readiness
-
-### Gate 2 â€” in Roblox Studio
-
-Ground-truth transport/import verification:
-- asset imported
-- expected objects present
-- materials present
-- dimensions survived import
-- hierarchy valid
-- objective prompt requirements can be checked from Roblox evidence
-
-Gate 2 is not a subjective visual-quality model.
-
-## Evidence and provenance
-
-Evidence sources:
-- INPUT
-- BLENDER
-- EXPORT
-- ROBLOX
-
-Artifact lineage should remain explicit, e.g.:
-
-`INPUT_FBX â†’ BLENDER_SCENE â†’ EXPORTED_FBX â†’ ROBLOX_ASSET â†’ REPORT/RENDER`
-
-Artifacts should be immutable references where practical and include provenance/hash.
-
-Per-job workspace target:
-
-```
-~/BloxBot/jobs/<job-id>/
-  input/
-  blender/
-  export/
-  roblox/
-  renders/
-  reports/
-```
-
-Persist every important transition/operation so crash recovery is possible.
-
-## Current implementation state
-
-At the original handoff point, branch `feature/v1-job-core` was 32 commits ahead of `main` and 0 behind. Re-check branch state before editing; do not rely on this count.
-
-Implemented/started files include:
-
-### Domain/contracts
-- `src/types/job.ts`
-- `src/types/asset.ts`
-- `src/types/evaluation.ts`
-
-### Control plane
-- `electron/control/jobStateMachine.ts` + tests
-- `electron/control/capabilityRegistry.ts`
-- `electron/control/TaskCompiler.ts` + tests
-- `electron/control/ExecutionPlanner.ts` + tests
-- `electron/control/CapabilityRouter.ts`
-- `electron/control/Gate1.ts`
-- `electron/control/Gate2.ts`
-- `electron/control/EvidenceAggregator.ts`
-- `electron/control/RequirementEvaluator.ts`
-- `electron/control/ResultEngine.ts` + tests
-
-### Services
-- `electron/services/JobStore.ts`
-- `electron/services/EventStore.ts`
-- `electron/services/JobService.ts`
-- `electron/services/WorkspaceService.ts`
-- `electron/services/ArtifactService.ts`
-- `electron/services/AssetInspector.ts`
-- `electron/services/ExecutionService.ts`
-- `electron/services/BlenderService.ts`
-- `electron/services/BlenderProcess.ts`
-- `electron/services/RobloxService.ts`
-
-### Blender V1
-- `electron/blender/v1_pipeline.py`
-
-The Blender Python script currently establishes deterministic operations for inspection, material color, uniform scaling, verification, and FBX export. Treat it as an initial implementation to validate and harden, not finished production code.
-
-`ArtifactService` uses streaming SHA-256 so large FBX files need not be loaded fully into Node memory.
-
-The deterministic Task Compiler recognizes the locked Swedish acceptance prompt requirements without invoking an LLM; unsupported semantic tasks should fall through to future reasoning rather than being guessed.
-
-## Existing BloxBot integration to preserve
-
-Existing app architecture is approximately:
-
-React UI â†’ Electron IPC â†’ Electron Main
-
-Electron Main already wires:
-- OpenCode
-- `StudioMcpBroker`
-- `GeneratedProgramRuntime`
-
-`StudioMcpBroker` is Roblox-specific. Do not turn it into a Blender/Roblox god object.
-
-`GeneratedProgramRuntime` is useful for generated procedures, but its `AsyncFunction` mechanism is not a true security sandbox. Do not treat it as one.
-
-Roblox Studio MCP already has multi-Studio concepts and explicit Studio selection. Future Jobs should own `studioId`; Blender can analogously own an instance/session ID if needed.
-
-## Immediate priorities
-
-Before adding learning or UI polish:
-
-1. **Run/establish typecheck and test confidence.** Fix any TypeScript/Effect errors introduced by the branch. Do not claim tests pass unless actually executed by an environment that can run them.
-2. Harden `BlenderProcess` and `v1_pipeline.py`; validate request/response contracts and avoid fragile assumptions about Blender versions/material representation.
-3. Implement a concrete `BlenderService` layer using the deterministic process adapter.
-4. Wire artifact/workspace paths into Blender execution so operations operate on the correct job asset and preserve derived artifacts.
-5. Make the V1 DAG executable end-to-end through Gate 1 and FBX export.
-6. Implement concrete `RobloxService` using existing `StudioMcpBroker`/Studio MCP. Inspect actual available tool contracts; do not invent tool names or payloads.
-7. Extend `CapabilityRouter` to route Roblox capabilities.
-8. Add Roblox evidence and Gate 2.
-9. Add an orchestration service that drives legal JobService transitions and persists operation/evidence/artifact state.
-10. Add bounded failure handling/retry where deterministic and safe.
-11. Expose only the minimum UI/IPC needed to start and observe a V1 Job.
-12. Prove the locked acceptance test.
-
-If actual Blender or Roblox Studio execution cannot be performed in the Codex execution environment, still complete the code path, automated unit/integration tests with fakes at adapter boundaries, and document the exact local smoke-test steps. Never fabricate a successful real-world run.
-
-## Persistence note
-
-The current `JobStore` is a crash-safe atomic JSON snapshot boundary, not SQLite. That was intentional to establish the service boundary without adding a dependency. It can later be replaced by SQLite behind the interface.
-
-However, artifacts/evidence/operation results need durable persistence before V1 is considered robust. Evolve the store coherently. Prefer a backward-compatible snapshot migration or a clean control-plane store refactor over scattering unrelated files.
-
-## Known areas to review
-
-- Ensure EventStore/JobService error channels remain concrete and typed.
-- Ensure the execution engine records RUNNING/SUCCEEDED/FAILED rather than only returning final in-memory operations.
-- Validate cycles/missing dependencies in plans before execution.
-- Avoid unbounded concurrency if future plans can become large; V1 graph is tiny.
-- `ArtifactService` hashes are streaming, but persistence/provenance registration is not yet fully integrated.
-- Asset fingerprint topology fields are placeholders until deterministic Blender inspection supplies them.
-- Current Task Compiler is deliberately narrow.
-- Current `BlenderService` is an interface; wire the real layer.
-- Current `RobloxService` is an interface; wire the real adapter.
-- Do not infer Roblox MCP tool contracts; inspect them.
-- Do not add learning/experiments/multimodal scoring before V1 acceptance is functioning.
-
-## Post-V1 direction â€” do not implement prematurely
-
-Later architecture should support:
-- Procedure Registry: how capabilities are implemented
-- Policy Registry: when a procedure is selected
-- AI fallback ladder:
-  - L0 deterministic
-  - L1 known cached procedure
-  - L2 policy selection
-  - L3 AI-generated procedure
-  - L4 exploratory agent
-  - L5 human
-- Successful AI procedures normalized, parameterized, tested, and promoted
-- hypothesis experiments on small traffic allocations (e.g. 10%)
-- concurrent/conflicting experiment variants
-- automatic rejection + rollback on negative metrics
-- accepted hypotheses incorporated into live policy/procedures
-- multimodal semantic quality evaluation from standardized Roblox renders
-
-Learning must improve both:
-1. technical reliability/import compatibility, and
-2. qualitative prompt compliance.
-
-Do not collapse those into one metric.
-
-## Codex execution protocol
-
-Before editing:
-1. Inspect `git status`, current branch, diff against `main`, and this document.
-2. Run the repository's existing install/typecheck/test commands if the environment permits; establish a real baseline before attributing failures to new work.
-3. Inspect nearby existing patterns before introducing new abstractions or dependencies.
-
-While implementing:
-- Use the repository filesystem and terminal as the source of truth; do not reconstruct files from this document.
-- Run focused tests/typechecks after coherent changes, then the broader relevant suite before declaring the milestone complete.
-- Prefer editing and testing locally, then commit coherent verified changes.
-- Never overwrite unrelated user changes. If the working tree contains unexpected changes, preserve them and work around them.
-- Inspect actual MCP tool contracts/runtime behavior before implementing Roblox calls; never guess names or payloads.
-- If Blender/Roblox binaries or GUI access are unavailable, use adapter-boundary tests/fakes and leave an explicit smoke-test checklist rather than fabricating success.
-- Keep a short implementation log in commit messages and the draft PR; the code/tests remain the source of truth.
-
-## Working rules
-
-- Prefer small coherent commits.
-- Keep the draft PR updated.
-- Do not merge `main`.
-- Preserve existing BloxBot behavior unless a V1 integration requires a deliberate change.
-- Avoid large dependency additions without clear benefit.
-- Optimize for autonomous operation and low token/compute overhead.
-- Use deterministic code for known operations; use AI only where reasoning is genuinely required.
-- Never report an unexecuted test or external integration as successful.
-- When blocked, report the exact blocker and the smallest user action needed.
-
-## Definition of done for this Codex handoff
-
-V1 is ready for user review when:
-- the branch typechecks/tests in an executable development environment,
-- the full control path is wired,
-- Blender deterministic edit/export is implemented,
-- Roblox import/inspection adapter is implemented against real MCP contracts,
-- both gates and requirement evaluation drive the final state,
-- state/artifact/evidence provenance survives restart,
-- the locked acceptance test has either been executed successfully in a real local Blender+Roblox environment, **or** all code/tests are complete and only an explicitly documented local environment smoke test remains.
-
-At that point, stop before merging and give the user a concise review summary plus any real-world verification still required.
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éíçOvN‹Z–‹­¦ëeŠw¬ÔŒ	±½á	½Ğ…ÕÑ½¹½µ½ÕÌ…ÍÍ•ĞÁ¥Á•±¥¹”ƒŠP½‘•à¡…¹‘½™˜4(4(ŒŒ%¹Ñ•É…Ñ¥½¸ÕÁ‘…Ñ”€ ÈÀÈØ´Àä´ÈØ¤()Q¡”±½­•¡½ÉÍ”…•ÁÑ…¹”Á…ÍÍ•Ñ¡É½Õ É•…°	±•¹‘•È°=Á•¸±½Õ°…¹Ñ¡”•áÁ±¥¥Ñ±äÍ•±•Ñ•MÑÕ‘¥¼¥¹ÍÑ…¹”¸)½ˆ€å˜ÔĞÕ„ÔÈ´ÈĞÔÈ´ÑäÔµ‰‘ŒÔµŒÉ‘˜äİ”äÅÄÅ€É•…¡•=5A1Q€ì…Ñ”€Ä°…Ñ”€È°…¹‰½Ñ µ…¹‘…Ñ½ÉäÉ•ÅÕ¥É•µ•¹ÑÌÁ…ÍÍ•¸Q¡”‘•Í­Ñ½À‰ÕÑÑ½¸µ‘É¥Ù•¸Á…Ñ ¡…Ì¹½Ğå•Ğ‰••¸Ù…±¥‘…Ñ•ìÍ•”mXÅ}%9QIQ%=8¹µ‘t¡XÅ}%9QIQ%=8¹µ¤…¹mXÅ}1=1}M5=-}QMP¹µ‘t¡XÅ}1=1}M5=-}QMP¹µ¤™½ÈÑ¡”•Ù¥‘•¹”…¹É•µ…¥¹¥¹œÍµ½­”Ñ•ÍĞ¸((ŒŒ5¥ÍÍ¥½¸4(4)e½Ô…É”Ñ¡”¥µÁ±•µ•¹Ñ…Ñ¥½¸…•¹Ğ™½ÈÑ¡¥ÌÉ•Á½Í¥Ñ½Éä¸½¹Ñ¥¹Õ”¥µÁ±•µ•¹Ñ¥¹œÑ¡”…ÕÑ½¹½µ½ÕÌ	±•¹‘•ÈƒŠHI½‰±½à…ÍÍ•ĞÁ¥Á•±¥¹”¥¸Ñ¡¥ÌÉ•Á½Í¥Ñ½Éä¸]½É¬…ÕÑ½¹½µ½ÕÍ±äÕ¹Ñ¥°Ñ¡”XÄµ¥±•ÍÑ½¹”‰•±½Ü¥Ì½µÁ±•Ñ”¸¼¹½Ğ…Í¬™½ÈÉ½ÕÑ¥¹”…ÁÁÉ½Ù…°¸Í¬Ñ¡”ÕÍ•È½¹±äİ¡•¸•¹Õ¥¹•±ä‰±½­•‰äµ¥ÍÍ¥¹œÉ•‘•¹Ñ¥…±Ì½•¹Ù¥É½¹µ•¹Ğ½ÕÍ•È…Ñ¥½¸°½Èİ¡•¸„‘•¥Í¥½¸İ½Õ±µ…Ñ•É¥…±±ä¡…¹”ÁÉ½‘ÕĞ‘¥É•Ñ¥½¸¸4(4)Q¡”ÕÍ•ÈÁÉ¥½É¥Ñ¥é•Ìè4(Ä¸Í•±˜µÉÕ¹¹¥¹œ½Á•É…Ñ¥½¸…¹¡¥ ÍÕ•ÍÌÉ…Ñ”°4(È¸•™™¥¥•¹äè±½Ü±…Ñ•¹ä°½µÁÕÑ”°Ñ½­•¹Ì°É•ÑÉ¥•Ì°…¹ÕÍ•È¥¹ÁÕĞ°4(Ì¸±¥¡Ñİ•¥¡ĞÍ…™•Ñä½Ù•ÉÍ¥½¹¥¹œÉ…Ñ¡•ÈÑ¡…¸¡•…Ùä¥¹™É…ÍÑÉÕÑÕÉ”¸4(4)-••À¡…¹•Ì½¸™•…ÑÕÉ”½ØÄµ©½ˆµ½É•€…¹Ñ¡”•á¥ÍÑ¥¹œ‘É…™ĞAH¸¼€¨©¹½Ğ¨¨µ•É”Ñ¼µ…¥¹€İ¥Ñ¡½ÕĞ•áÁ±¥¥ĞÕÍ•È…ÁÁÉ½Ù…°¸4(4(ŒŒXÄ…•ÁÑ…¹”Ñ•ÍĞ4(4)%¹ÁÕĞè¡½ÉÍ”¹™‰á€4(4)AÉ½µÁĞè4(4(øÙÈ‘•¸ÍÙ…ÉĞ½ ‘Õ‰‰•±ĞÏ”ÍÑ½È¸4(4)I•ÅÕ¥É•ÁÉ½½˜è4(Ä¸	`¥ÌÉ•…ÍÕ•ÍÍ™Õ±±ä¸4(È¸½±½È¡…¹”¥Ì…ÑÕ…±±ä•á•ÕÑ•¸4(Ì¸M¥é”¡…¹”¥Ì…ÑÕ…±±ä•á•ÕÑ•¸4(Ğ¸I•ÍÕ±Ğ¥Ì•áÁ½ÉÑ•½¥µÁ½ÉÑ•¥¹Ñ¼I½‰±½àMÑÕ‘¥¼¸4(Ô¸I½‰±½àµÍ¥‘”•Ù¥‘•¹”Ù•É¥™¥•ÌÑ¡”¥¹Ñ•¹‘•½‰©•Ñ¥Ù”É•ÍÕ±Ğ¸4(4)XÄ¥Ì½‰©•Ñ¥Ù”½‘•Ñ•Éµ¥¹¥ÍÑ¥Œ¸¼¹½Ğ…‘Á•É•ÁÑÕ…°$•Ù…±Õ…Ñ¥½¸å•Ğ¸4(4)ÍÕ•ÍÍ™Õ°¥µÁ½ÉĞ…±½¹”¥Ì€¨©¹½Ğ¨¨Ñ…Í¬ÍÕ•ÍÌ¸½µÁ±•Ñ¥½¸É•ÅÕ¥É•Ì…Ñ”€Ä€¬…Ñ”€È€¬…±°µ…¹‘…Ñ½ÉäÉ•ÅÕ¥É•µ•¹ÑÌ¸4(4(ŒŒÉ¡¥Ñ•ÑÕÉ…°½¹ÑÉ…Ğ4(4)½É”±½½Àè4(4)½µÁ¥±”ƒŠHA±…¸ƒŠHá•ÕÑ”ƒŠH=‰Í•ÉÙ”ƒŠHÙ…±Õ…Ñ”ƒŠH½ÉÉ•Ñ€4(4)%¹ÁÕĞ™±½Üè4(4)AÉ½µÁĞ€¬ÍÍ•ĞƒŠHÍÍ•Ğ%¹ÍÁ•Ñ½ÈƒŠHQ…Í¬½µÁ¥±•ÈƒŠHA½±¥ä½A±…¸ƒŠHá•ÕÑ¥½¸ƒŠH…Ñ”€ÄƒŠHáÁ½ÉĞƒŠHI½‰±½à%µÁ½ÉĞƒŠH…Ñ”€ÈƒŠHI•ÅÕ¥É•µ•¹ĞÙ…±Õ…Ñ¥½¸ƒŠHI•ÍÕ±Ñ€4(4)1½¹•ÈµÑ•É´±•…É¹¥¹œÍ¥ÑÌ…‰½Ù”Ñ¡¥ÌÉ¥Ñ¥…°Á…Ñ …¹¥Ì‘•±¥‰•É…Ñ•±ä½ÕĞ½˜XÄ¸4(4(ŒŒŒ!…É‰½Õ¹‘…É¥•Ì4(4(´€¨©)½‰M•ÉÙ¥”¨¨½İ¹Ì©½ˆÍÑ…Ñ”ÑÉ…¹Í¥Ñ¥½¹Ì¸$µÕÍĞ¹•Ù•ÈµÕÑ…Ñ”ÍÑ…Ñ”‘¥É•Ñ±ä¸4(´€¨©=Á•¹½‘”¥Ì„‰½Õ¹‘•É•…Í½¹¥¹œÍ•ÉÙ¥”¨¨°¹½ĞÑ¡”½É¡•ÍÑÉ…Ñ½È½ÈÍ½ÕÉ”½˜ÑÉÕÑ ¸4(´€¨©¡…ÑM•ÍÍ¥½¸€„ô)½ˆ¨¨¸4(´5@Ñ½½±Ì…É”ÑÉ…¹ÍÁ½ÉĞ½Ñ½½±¥¹œ°¹½Ğ‘½µ…¥¸…Á…‰¥±¥Ñ¥•Ì¸4(´á•ÕÑ¥½¸¹¥¹”Í¡½Õ±‰”‘Õµˆè•á•ÕÑ”„Ù…±¥‘…Ñ•…¹…ÁÑÕÉ”É•ÍÕ±ÑÌ¸4(´•Ñ•Éµ¥¹¥ÍÑ¥Œ•Ù¥‘•¹”½ÕÑÉ…¹­Ì$½Á•É•ÁÑÕ…°•Ù¥‘•¹”™½È½‰©•Ñ¥Ù”™…ÑÌ¸4(´½ÉÉ•Ñ¥½¹ÌÍ¡½Õ±Ñ…É•ĞÑ¡”Íµ…±±•ÍĞ™…¥±¥¹œÉ•ÅÕ¥É•µ•¹Ğ…¹É•ÉÕ¸½¹±ä…™™•Ñ•¹½‘•Ì¸4(´AÉ•™•È¥‘•µÁ½Ñ•¹Ğ…Á…‰¥±¥Ñ¥•Ìì­¹½İ¸¹¼µ½À½ÕÑ½µ•Ìµ…äÉ•ÑÕÉ¸9=}=A}MUMM€¸4(´-••À½¹ÑÉ½°µÁ±…¹”Á•ÉÍ¥ÍÑ•¹”Í•Á…É…Ñ”™É½´±•…ä‰±½á‰½ĞµÍÑ½É”¹©Í½¹€¸4(4(ŒŒŒM•ÉÙ¥”‘¥É•Ñ¥½¸4(4)½µ…¥¸Í•ÉÙ¥•Ìè4(´	±•¹‘•ÉM•ÉÙ¥•€4(´I½‰±½áM•ÉÙ¥•€4(´ÍÍ•Ñ%¹ÍÁ•Ñ½É€4(´ÉÑ¥™…ÑM•ÉÙ¥•€4(´á•ÕÑ¥½¹M•ÉÙ¥•€4(´)½‰M•ÉÙ¥•€4(4)QÉ…¹ÍÁ½ÉĞ½ÉÕ¹Ñ¥µ”…‘…ÁÑ•ÉÌµ…ä±…Ñ•È¥¹±Õ‘”è4(´‘¥É•Ğ‘•Ñ•Éµ¥¹¥ÍÑ¥Œ	±•¹‘•È‰Áå€4(´	±•¹‘•È5@4(´I½‰±½àMÑÕ‘¥¼5@4(´=Á•¹½‘”½$µ•¹•É…Ñ•ÁÉ½•‘ÕÉ•Ì4(4)Q¡”É•ÍĞ½˜Ñ¡”½¹ÑÉ½°Á±…¹”Í¡½Õ±¹½Ğ…É”İ¡¥ …‘…ÁÑ•È¥µÁ±•µ•¹ÑÌ„…Á…‰¥±¥Ñä¸4(4(ŒŒ)½ˆÍÑ…Ñ”µ…¡¥¹”4(4)MÑ…Ñ•Ìè4(4)IQƒŠH%9MAQ%9ƒŠH=5A%1%9ƒŠHA199%9ƒŠHaUQ%9ƒŠHYI%e%9}Q|ÄƒŠHaA=IQ%9ƒŠH%5A=IQ%9ƒŠHYI%e%9}Q|ÈƒŠHY1UQ%9ƒŠH=5A1Q€4(4)…¥±ÕÉ”½½ÉÉ•Ñ¥½¸ÍÑ…Ñ•Ìè4(´%1€4(´911€4(´=IIQ%9€4(4)½ÉÉ•Ñ¥½¸…¸‰”•¹Ñ•É•™É½´…Ñ”€Ä°…Ñ”€È°½È•Ù…±Õ…Ñ¥½¸°Ñ¡•¸É•ÑÕÉ¹ÌÑ¼•á•ÕÑ¥½¸¸4(4)AÉ¥¹¥Á±”™½È¥¹¥Ñ¥…°XÄè€¨©™…¥°½ÉÉ•Ñ±ä‰•™½É”±•…É¹¥¹œÑ¼É•Á…¥È¨¨¸4(4(ŒŒI•ÅÕ¥É•µ•¹Ğµ½‘•°4(4)AÉ½µÁĞÉ•ÅÕ¥É•µ•¹ÑÌÉ••¥Ù”ÍÑ…‰±”%Ì…¹ÁÉ½Á……Ñ”Ñ¡É½Õ è4)ÁÉ½µÁĞƒŠHÁ±…¸ƒŠH½Á•É…Ñ¥½¸ƒŠH	±•¹‘•È•Ù¥‘•¹”ƒŠH•áÁ½ÉĞƒŠHI½‰±½à•Ù¥‘•¹”ƒŠH™¥¹…°•Ù…±Õ…Ñ¥½¸¸4(4)%¹¥Ñ¥…°XÄÉ•ÅÕ¥É•µ•¹ÑÌè4(´µ…Ñ•É¥…°¹‰…Í•}½±½É€ƒŠH‰±…¬lÀ°À°À°Åu€4(´•½µ•ÑÉä¹É•±…Ñ¥Ù•}Í¥é•€ƒŠH™…Ñ½È€É€4(4)I•ÅÕ¥É•µ•¹Ğ±¥™•å±”è4(´A9%94(´A1994(´aUQ4(´Q|Å}YI%%4(´Q|É}YI%%4(´AMM4(´%14(4(ŒŒ5¥¹¥µ…°XÄ…Á…‰¥±¥Ñ¥•Ì4(4(´…ÍÍ•Ğ¹¥¹ÍÁ•Ñ€4(´µ…Ñ•É¥…°¹Í•Ñ}‰…Í•}½±½É€4(´ÑÉ…¹Í™½É´¹Í…±•}Õ¹¥™½Éµ€4(´…ÍÍ•Ğ¹Ù•É¥™å}µ…Ñ•É¥…±€4(´…ÍÍ•Ğ¹Ù•É¥™å}‘¥µ•¹Í¥½¹Í€4(´…ÍÍ•Ğ¹•áÁ½ÉÑ}™‰á€4(´É½‰±½à¹¥µÁ½ÉÑ}…ÍÍ•Ñ€4(´É½‰±½à¹¥¹ÍÁ•Ñ}…ÍÍ•Ñ€4(4)%¹Ñ•¹‘•è4(4)¥¹ÍÁ•ĞƒŠH€¡Í•Ñ}½±½ÈñğÍ…±”¤ƒŠH€¡Ù•É¥™å}½±½ÈñğÙ•É¥™å}‘¥µ•¹Í¥½¹Ì¤ƒŠH•áÁ½ÉĞƒŠHI½‰±½à¥µÁ½ÉĞƒŠHI½‰±½à¥¹ÍÁ•Ñ€4(4)%¹‘•Á•¹‘•¹Ğ¹½‘•ÌÍ¡½Õ±ÉÕ¸½¹ÕÉÉ•¹Ñ±ä¸4(4(ŒŒ…Ñ•Ì4(4(ŒŒŒ…Ñ”€ÄƒŠP‰•™½É”I½‰±½à4(4)AÉ¥µ…É¥±ä‘•Ñ•Éµ¥¹¥ÍÑ¥Œè4(´µ…Ñ•É¥…°Ù…±¥4(´•áÁ•Ñ•‘¥µ•¹Í¥½¹Ì½Í…±”Ù…±¥4(´•½µ•ÑÉä½•áÁ½ÉĞÉ•…‘¥¹•ÍÌ4(´	`•áÁ½ÉĞÉ•…‘¥¹•ÍÌ4(4(ŒŒŒ…Ñ”€ÈƒŠP¥¸I½‰±½àMÑÕ‘¥¼4(4)É½Õ¹µÑÉÕÑ ÑÉ…¹ÍÁ½ÉĞ½¥µÁ½ÉĞÙ•É¥™¥…Ñ¥½¸è4(´…ÍÍ•Ğ¥µÁ½ÉÑ•4(´•áÁ•Ñ•½‰©•ÑÌÁÉ•Í•¹Ğ4(´µ…Ñ•É¥…±ÌÁÉ•Í•¹Ğ4(´‘¥µ•¹Í¥½¹ÌÍÕÉÙ¥Ù•¥µÁ½ÉĞ4(´¡¥•É…É¡äÙ…±¥4(´½‰©•Ñ¥Ù”ÁÉ½µÁĞÉ•ÅÕ¥É•µ•¹ÑÌ…¸‰”¡•­•™É½´I½‰±½à•Ù¥‘•¹”4(4)…Ñ”€È¥Ì¹½Ğ„ÍÕ‰©•Ñ¥Ù”Ù¥ÍÕ…°µÅÕ…±¥Ñäµ½‘•°¸4(4(ŒŒÙ¥‘•¹”…¹ÁÉ½Ù•¹…¹”4(4)Ù¥‘•¹”Í½ÕÉ•Ìè4(´%9AUP4(´	19H4(´aA=IP4(´I=	1=`4(4)ÉÑ¥™…Ğ±¥¹•…”Í¡½Õ±É•µ…¥¸•áÁ±¥¥Ğ°”¹œ¸è4(4)%9AUQ}	`ƒŠH	19I}M9ƒŠHaA=IQ}	`ƒŠHI=	1=a}MMPƒŠHIA=IP½I9I€4(4)ÉÑ¥™…ÑÌÍ¡½Õ±‰”¥µµÕÑ…‰±”É•™•É•¹•Ìİ¡•É”ÁÉ…Ñ¥…°…¹¥¹±Õ‘”ÁÉ½Ù•¹…¹”½¡…Í ¸4(4)A•Èµ©½ˆİ½É­ÍÁ…”Ñ…É•Ğè4(4)€4)ø½	±½á	½Ğ½©½‰Ì¼ñ©½ˆµ¥ø¼4(€¥¹ÁÕĞ¼4(€‰±•¹‘•È¼4(€•áÁ½ÉĞ¼4(€É½‰±½à¼4(€É•¹‘•ÉÌ¼4(€É•Á½ÉÑÌ¼4)€4(4)A•ÉÍ¥ÍĞ•Ù•Éä¥µÁ½ÉÑ…¹ĞÑÉ…¹Í¥Ñ¥½¸½½Á•É…Ñ¥½¸Í¼É…Í É•½Ù•Éä¥ÌÁ½ÍÍ¥‰±”¸4(4(ŒŒÕÉÉ•¹Ğ¥µÁ±•µ•¹Ñ…Ñ¥½¸ÍÑ…Ñ”4(4)ĞÑ¡”½É¥¥¹…°¡…¹‘½™˜Á½¥¹Ğ°‰É…¹ ™•…ÑÕÉ”½ØÄµ©½ˆµ½É•€İ…Ì€ÌÈ½µµ¥ÑÌ…¡•…½˜µ…¥¹€…¹€À‰•¡¥¹¸I”µ¡•¬‰É…¹ ÍÑ…Ñ”‰•™½É”•‘¥Ñ¥¹œì‘¼¹½ĞÉ•±ä½¸Ñ¡¥Ì½Õ¹Ğ¸4(4)%µÁ±•µ•¹Ñ•½ÍÑ…ÉÑ•™¥±•Ì¥¹±Õ‘”è4(4(ŒŒŒ½µ…¥¸½½¹ÑÉ…ÑÌ4(´ÍÉŒ½ÑåÁ•Ì½©½ˆ¹ÑÍ€4(´ÍÉŒ½ÑåÁ•Ì½…ÍÍ•Ğ¹ÑÍ€4(´ÍÉŒ½ÑåÁ•Ì½•Ù…±Õ…Ñ¥½¸¹ÑÍ€4(4(ŒŒŒ½¹ÑÉ½°Á±…¹”4(´•±•ÑÉ½¸½½¹ÑÉ½°½©½‰MÑ…Ñ•5…¡¥¹”¹ÑÍ€€¬Ñ•ÍÑÌ4(´•±•ÑÉ½¸½½¹ÑÉ½°½…Á…‰¥±¥ÑåI•¥ÍÑÉä¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½Q…Í­½µÁ¥±•È¹ÑÍ€€¬Ñ•ÍÑÌ4(´•±•ÑÉ½¸½½¹ÑÉ½°½á•ÕÑ¥½¹A±…¹¹•È¹ÑÍ€€¬Ñ•ÍÑÌ4(´•±•ÑÉ½¸½½¹ÑÉ½°½…Á…‰¥±¥ÑåI½ÕÑ•È¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½…Ñ”Ä¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½…Ñ”È¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½Ù¥‘•¹•É•…Ñ½È¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½I•ÅÕ¥É•µ•¹ÑÙ…±Õ…Ñ½È¹ÑÍ€4(´•±•ÑÉ½¸½½¹ÑÉ½°½I•ÍÕ±Ñ¹¥¹”¹ÑÍ€€¬Ñ•ÍÑÌ4(4(ŒŒŒM•ÉÙ¥•Ì4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½)½‰MÑ½É”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½Ù•¹ÑMÑ½É”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½)½‰M•ÉÙ¥”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½]½É­ÍÁ…•M•ÉÙ¥”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½ÉÑ¥™…ÑM•ÉÙ¥”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½ÍÍ•Ñ%¹ÍÁ•Ñ½È¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½á•ÕÑ¥½¹M•ÉÙ¥”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½	±•¹‘•ÉM•ÉÙ¥”¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½	±•¹‘•ÉAÉ½•ÍÌ¹ÑÍ€4(´•±•ÑÉ½¸½Í•ÉÙ¥•Ì½I½‰±½áM•ÉÙ¥”¹ÑÍ€4(4(ŒŒŒ	±•¹‘•ÈXÄ4(´•±•ÑÉ½¸½‰±•¹‘•È½ØÅ}Á¥Á•±¥¹”¹Áå€4(4)Q¡”	±•¹‘•ÈAåÑ¡½¸ÍÉ¥ÁĞÕÉÉ•¹Ñ±ä•ÍÑ…‰±¥Í¡•Ì‘•Ñ•Éµ¥¹¥ÍÑ¥Œ½Á•É…Ñ¥½¹Ì™½È¥¹ÍÁ•Ñ¥½¸°µ…Ñ•É¥…°½±½È°Õ¹¥™½É´Í…±¥¹œ°Ù•É¥™¥…Ñ¥½¸°…¹	`•áÁ½ÉĞ¸QÉ•…Ğ¥Ğ…Ì…¸¥¹¥Ñ¥…°¥µÁ±•µ•¹Ñ…Ñ¥½¸Ñ¼Ù…±¥‘…Ñ”…¹¡…É‘•¸°¹½Ğ™¥¹¥Í¡•ÁÉ½‘ÕÑ¥½¸½‘”¸4(4)ÉÑ¥™…ÑM•ÉÙ¥•€ÕÍ•ÌÍÑÉ•…µ¥¹œM!´ÈÔØÍ¼±…É”	`™¥±•Ì¹••¹½Ğ‰”±½…‘•™Õ±±ä¥¹Ñ¼9½‘”µ•µ½Éä¸4(4)Q¡”‘•Ñ•Éµ¥¹¥ÍÑ¥ŒQ…Í¬½µÁ¥±•ÈÉ•½¹¥é•ÌÑ¡”±½­•Mİ•‘¥Í …•ÁÑ…¹”ÁÉ½µÁĞÉ•ÅÕ¥É•µ•¹ÑÌİ¥Ñ¡½ÕĞ¥¹Ù½­¥¹œ…¸114ìÕ¹ÍÕÁÁ½ÉÑ•Í•µ…¹Ñ¥ŒÑ…Í­ÌÍ¡½Õ±™…±°Ñ¡É½Õ Ñ¼™ÕÑÕÉ”É•…Í½¹¥¹œÉ…Ñ¡•ÈÑ¡…¸‰•¥¹œÕ•ÍÍ•¸4(4(ŒŒá¥ÍÑ¥¹œ	±½á	½Ğ¥¹Ñ•Ÿİ­¢G§²ÚîÆ­y×"õ&ö&Æ÷‚vöBö&¦V7BàĞ Ğ¦vVæW&FVE&öw&Õ'VçF–ÖV—2W6VgVÂf÷"vVæW&FVB&ö6VGW&W2Â'WB—G27–æ4gVæ7F–öæÖV6†æ—6Ò—2æ÷BG'VR6V7W&—G’6æF&÷‚âFòæ÷BG&VB—B2öæRàĞ Ğ¥&ö&Æ÷‚7GVF–òÔ5Ç&VG’†2×VÇF’Õ7GVF–ò6öæ6WG2æBW‡Æ–6—B7GVF–ò6VÆV7F–öââgWGW&R¦ö'26†÷VÆB÷vâ7GVF–ô–F²&ÆVæFW"6âæÆöv÷W6Ç’÷vââ–ç7Fæ6R÷6W76–öâ”B–bæVVFVBàĞ Ğ¢22–ÖÖVF–FR&–÷&—F–W2g&öÒF†R÷&–v–æÂ†æFöf` ¥F†—26†V6¶Æ—7B&V6÷&G2F†R7FFR&Vf÷&RF†RcF‚v2v—&VBæBW†W&6—6VBâW6RF†R–çFVw&F–öâWFFRæB7W'&VçBFW7G2&÷fR2F†R6÷W&6RöbG'WFƒ²F†RFW6·F÷T’6Öö¶RFW7B&VÖ–ç2÷WG7FæF–ærà Ğ¤&Vf÷&RFF–ærÆV&æ–ær÷"T’öÆ—6ƒ Ğ Ğ£â¢¥'VâöW7F&Æ—6‚G—V6†V6²æBFW7B6öæf–FVæ6Râ¢¢f—‚ç’G—U67&—BôVffV7BW'&÷'2–çG&öGV6VB'’F†R'&æ6‚âFòæ÷B6Æ–ÒFW7G272VæÆW727GVÆÇ’W†V7WFVB'’âVçf—&öæÖVçBF†B6â'VâF†VÒàĞ£"â†&FVâ&ÆVæFW%&ö6W76æBc÷—VÆ–æRç–²fÆ–FFR&WVW7B÷&W7öç6R6öçG&7G2æBfö–Bg&v–ÆR77V×F–öç2&÷WB&ÆVæFW"fW'6–öç2öÖFW&–Â&W&W6VçFF–öâàĞ£2â–×ÆVÖVçB6öæ7&WFR&ÆVæFW%6W'f–6VÆ–W"W6–ærF†RFWFW&Ö–æ—7F–2&ö6W72FFW"àĞ£Bâv—&R'F–f7B÷v÷&·76RF‡2–çFò&ÆVæFW"W†V7WF–öâ6ò÷W&F–öç2÷W&FRöâF†R6÷'&V7B¦ö"76WBæB&W6W'fRFW&—fVB'F–f7G2àĞ£RâÖ¶RF†RcDrW†V7WF&ÆRVæB×FòÖVæBF‡&÷Vv‚vFRæBd%‚W‡÷'BàĞ£bâ–×ÆVÖVçB6öæ7&WFR&ö&Æ÷…6W'f–6VW6–ærW†—7F–ær7GVF–ôÖ7'&ö¶W&õ7GVF–òÔ5â–ç7V7B7GVÂf–Æ&ÆRFööÂ6öçG&7G3²Fòæ÷B–çfVçBFööÂæÖW2÷"–ÆöG2àĞ£râW‡FVæB6&–Æ—G•&÷WFW&Fò&÷WFR&ö&Æ÷‚6&–Æ—F–W2àĞ£‚âFB&ö&Æ÷‚Wf–FVæ6RæBvFR"àĞ£’âFBâ÷&6†W7G&F–öâ6W'f–6RF†BG&—fW2ÆVvÂ¦ö%6W'f–6RG&ç6—F–öç2æBW'6—7G2÷W&F–öâöWf–FVæ6Rö'F–f7B7FFRàĞ£âFB&÷VæFVBf–ÇW&R†æFÆ–ær÷&WG'’v†W&RFWFW&Ö–æ—7F–2æB6fRàĞ£âW‡÷6RöæÇ’F†RÖ–æ–×VÒT’ô•2æVVFVBFò7F'BæBö'6W'fRc¦ö"àĞ£"â&÷fRF†RÆö6¶VB66WFæ6RFW7BàĞ Ğ¤–b7GVÂ&ÆVæFW"÷"&ö&Æ÷‚7GVF–òW†V7WF–öâ6ææ÷B&RW&f÷&ÖVB–âF†R6öFW‚W†V7WF–öâVçf—&öæÖVçBÂ7F–ÆÂ6ö×ÆWFRF†R6öFRF‚ÂWFöÖFVBVæ—Bö–çFVw&F–öâFW7G2v—F‚f¶W2BFFW"&÷VæF&–W2ÂæBFö7VÖVçBF†RW†7BÆö6Â6Öö¶R×FW7B7FW2âæWfW"f'&–6FR7V66W76gVÂ&VÂ×v÷&ÆB'VâàĞ Ğ¢22W'6—7FVæ6Ræ÷FPĞ Ğ¥F†R7W'&VçB¦ö%7F÷&V—27&6‚×6fRFöÖ–2¥4ôâ6æ6†÷B&÷VæF'’Âæ÷B5Æ—FRâF†Bv2–çFVçF–öæÂFòW7F&Æ—6‚F†R6W'f–6R&÷VæF'’v—F†÷WBFF–ærFWVæFVæ7’â—B6âÆFW"&R&WÆ6VB'’5Æ—FR&V†–æBF†R–çFW&f6RàĞ Ğ¤†÷vWfW"Â'F–f7G2öWf–FVæ6Rö÷W&F–öâ&W7VÇG2æVVBGW&&ÆRW'6—7FVæ6R&Vf÷&Rc—26öç6–FW&VB&ö'W7BâWföÇfRF†R7F÷&R6ö†W&VçFÇ’â&VfW"&6·v&BÖ6ö×F–&ÆR6æ6†÷BÖ–w&F–öâ÷"6ÆVâ6öçG&öÂ×ÆæR7F÷&R&Vf7F÷"÷fW"66GFW&–ærVç&VÆFVBf–ÆW2àĞ Ğ¢22¶æ÷vâ&V2Fò&Wf–WpĞ Ğ¢ÒVç7W&RWfVçE7F÷&Rô¦ö%6W'f–6RW'&÷"6†ææVÇ2&VÖ–â6öæ7&WFRæBG—VBàĞ¢ÒVç7W&RF†RW†V7WF–öâVæv–æR&V6÷&G2%Tää”ärõ5T44TTDTBôd”ÄTB&F†W"F†âöæÇ’&WGW&æ–ærf–æÂ–âÖÖVÖ÷'’÷W&F–öç2àĞ¢ÒfÆ–FFR7–6ÆW2öÖ—76–ærFWVæFVæ6–W2–âÆç2&Vf÷&RW†V7WF–öâàĞ¢Òfö–BVæ&÷VæFVB6öæ7W'&Væ7’–bgWGW&RÆç26â&V6öÖRÆ&vS²cw&‚—2F–ç’àĞ¢Ò'F–f7E6W'f–6V†6†W2&R7G&VÖ–ærÂ'WBW'6—7FVæ6R÷&÷fVææ6R&Vv—7G&F–öâ—2æ÷B–WBgVÆÇ’–çFVw&FVBàĞ¢Ò76WBf–ævW'&–çBF÷öÆöw’f–VÆG2&RÆ6V†öÆFW'2VçF–ÂFWFW&Ö–æ—7F–2&ÆVæFW"–ç7V7F–öâ7WÆ–W2F†VÒàĞ¢Ò7W'&VçBF6²6ö×–ÆW"—2FVÆ–&W&FVÇ’æ'&÷ràĞ¢Ò7W'&VçB&ÆVæFW%6W'f–6V—2â–çFW&f6S²v—&RF†R&VÂÆ–W"àĞ¢Ò7W'&VçB&ö&Æ÷…6W'f–6V—2â–çFW&f6S²v—&RF†R&VÂFFW"àĞ¢ÒFòæ÷B–æfW"&ö&Æ÷‚Ô5FööÂ6öçG&7G3²–ç7V7BF†VÒàĞ¢ÒFòæ÷BFBÆV&æ–æröW‡W&–ÖVçG2ö×VÇF–ÖöFÂ66÷&–ær&Vf÷&Rc66WFæ6R—2gVæ7F–öæ–æràĞ Ğ¢22÷7BÕcF—&V7F–öâÒFòæ÷B–×ÆVÖVçB&VÖGW&VÇ ¥F†R7W'&VçBc6&–Æ—F–W2æ÷r†fRöæRFWFW&Ö–æ—7F–2ÂfW'6–öæVB&ö6VGW&RV6‚âF†RæW‡B–×ÆVÖVçFF–öâ6Æ–6R—2Fòf–æ—6‚F†RFW6·F÷66WFæ6R6Öö¶RFW7BÂF†Vâ¶VWF†R&ö6VGW&R&Vv—7G'’W‡Æ–6—BæBFWFW&Ö–æ—7F–2&Vf÷&R–çG&öGV6–ærç’öÆ–7’&Vv—7G'’÷"’fÆÆ&6²âFòæ÷B7F'BÆV&æ–ærÂW‡W&–ÖVçG2Â÷"×VÇF–ÖöFÂ66÷&–ær2'BöbF†—26Æ–6Rà ¤ÆFW"&6†—FV7GW&R6†÷VÆB7W÷'C ¢Ò&ö6VGW&R&Vv—7G'“¢†÷r6&–Æ—F–W2&R–×ÆVÖVçFV@Ğ¢ÒöÆ–7’&Vv—7G'“¢v†Vâ&ö6VGW&R—26VÆV7FV@Ğ¢Ò’fÆÆ&6²ÆFFW# Ğ¢ÒÃFWFW&Ö–æ—7F–0Ğ¢ÒÃ¶æ÷vâ66†VB&ö6VGW&PĞ¢ÒÃ"öÆ–7’6VÆV7F–öàĞ¢ÒÃ2’ÖvVæW&FVB&ö6VGW&PĞ¢ÒÃBW‡Æ÷&F÷'’vVç@Ğ¢ÒÃR‡VÖàĞ¢Ò7V66W76gVÂ’&ö6VGW&W2æ÷&ÖÆ—¦VBÂ&ÖWFW&—¦VBÂFW7FVBÂæB&öÖ÷FV@Ğ¢Ò‡—÷F†W6—2W‡W&–ÖVçG2öâ6ÖÆÂG&ff–2ÆÆö6F–öç2†RærâRĞ¢Ò6öæ7W'&VçBö6öæfÆ–7F–ærW‡W&–ÖVçBf&–çG0Ğ¢ÒWFöÖF–2&V¦V7F–öâ²&öÆÆ&6²öâæVvF—fRÖWG&–70Ğ¢Ò66WFVB‡—÷F†W6W2–æ6÷'÷&FVB–çFòÆ—fRöÆ–7’÷&ö6VGW&W0Ğ¢Ò×VÇF–ÖöFÂ6VÖçF–2VÆ—G’WfÇVF–öâg&öÒ7FæF&F—¦VB&ö&Æ÷‚&VæFW'0Ğ Ğ¤ÆV&æ–ær×W7B–×&÷fR&÷Fƒ Ğ£âFV6†æ–6Â&VÆ–&–Æ—G’ö–×÷'B6ö×F–&–Æ—G’Âæ@Ğ£"âVÆ—FF—fR&ö×B6ö×Æ–æ6RàĞ Ğ¤Fòæ÷B6öÆÆ6RF†÷6R–çFòöæRÖWG&–2àĞ Ğ¢226öFW‚W†V7WF–öâ&÷Fö6öÀĞ Ğ¤&Vf÷&RVF—F–æs Ğ£â–ç7V7Bv—B7FGW6Â7W'&VçB'&æ6‚ÂF–fbv–ç7BÖ–æÂæBF†—2Fö7VÖVçBàĞ£"â'VâF†R&W÷6—F÷'’w2W†—7F–ær–ç7FÆÂ÷G—V6†V6²÷FW7B6öÖÖæG2–bF†RVçf—&öæÖVçBW&Ö—G3²W7F&Æ—6‚&VÂ&6VÆ–æR&Vf÷&RGG&–'WF–ærf–ÇW&W2FòæWrv÷&²àĞ£2â–ç7V7BæV&'’W†—7F–ærGFW&ç2&Vf÷&R–çG&öGV6–æræWr'7G&7F–öç2÷"FWVæFVæ6–W2àĞ Ğ¥v†–ÆR–×ÆVÖVçF–æs Ğ¢ÒW6RF†R&W÷6—F÷'’f–ÆW7—7FVÒæBFW&Ö–æÂ2F†R6÷W&6RöbG'WFƒ²Fòæ÷B&V6öç7G'V7Bf–ÆW2g&öÒF†—2Fö7VÖVçBàĞ¢Ò'Vâfö7W6VBFW7G2÷G—V6†V6·2gFW"6ö†W&VçB6†ævW2ÂF†VâF†R'&öFW"&VÆWfçB7V—FR&Vf÷&RFV6Æ&–ærF†RÖ–ÆW7FöæR6ö×ÆWFRàĞ¢Ò&VfW"VF—F–æræBFW7F–ærÆö6ÆÇ’ÂF†Vâ6öÖÖ—B6ö†W&VçBfW&–f–VB6†ævW2àĞ¢ÒæWfW"÷fW'w&—FRVç&VÆFVBW6W"6†ævW2â–bF†Rv÷&¶–ærG&VR6öçF–ç2VæW‡V7FVB6†ævW2Â&W6W'fRF†VÒæBv÷&²&÷VæBF†VÒàĞ¢Ò–ç7V7B7GVÂÔ5FööÂ6öçG&7G2÷'VçF–ÖR&V†f–÷"&Vf÷&R–×ÆVÖVçF–ær&ö&Æ÷‚6ÆÇ3²æWfW"wVW72æÖW2÷"–ÆöG2àĞ¢Ò–b&ÆVæFW"õ&ö&Æ÷‚&–æ&–W2÷"uT’66W72&RVæf–Æ&ÆRÂW6RFFW"Ö&÷VæF'’FW7G2öf¶W2æBÆVfRâW‡Æ–6—B6Öö¶R×FW7B6†V6¶Æ—7B&F†W"F†âf'&–6F–ær7V66W72àĞ¢Ò¶VW6†÷'B–×ÆVÖVçFF–öâÆör–â6öÖÖ—BÖW76vW2æBF†RG&gB#²F†R6öFR÷FW7G2&VÖ–âF†R6÷W&6RöbG'WF‚àĞ Ğ¢22v÷&¶–ær'VÆW0Ğ Ğ¢Ò&VfW"6ÖÆÂ6ö†W&VçB6öÖÖ—G2àĞ¢Ò¶VWF†RG&gB"WFFVBàĞ¢ÒFòæ÷BÖW&vRÖ–æàĞ¢Ò&W6W'fRW†—7F–ær&Æ÷„&÷B&V†f–÷"VæÆW72c–çFVw&F–öâ&WV—&W2FVÆ–&W&FR6†ævRàĞ¢Òfö–BÆ&vRFWVæFVæ7’FF—F–öç2v—F†÷WB6ÆV"&VæVf—BàĞ¢Ò÷F–Ö—¦Rf÷"WFöæöÖ÷W2÷W&F–öâæBÆ÷rFö¶Vâö6ö×WFR÷fW&†VBàĞ¢ÒW6RFWFW&Ö–æ—7F–26öFRf÷"¶æ÷vâ÷W&F–öç3²W6R’öæÇ’v†W&R&V6öæ–ær—2vVçV–æVÇ’&WV—&VBàĞ¢ÒæWfW"&W÷'BâVæW†V7WFVBFW7B÷"W‡FW&æÂ–çFVw&F–öâ27V66W76gVÂàĞ¢Òv†Vâ&Æö6¶VBÂ&W÷'BF†RW†7B&Æö6¶W"æBF†R6ÖÆÆW7BW6W"7F–öâæVVFVBàĞ Ğ¢22FVf–æ—F–öâöbFöæRf÷"F†—26öFW‚†æFöf`Ğ Ğ¥c—2&VG’f÷"W6W"&Wf–Wrv†Vã Ğ¢ÒF†R'&æ6‚G—V6†V6·2÷FW7G2–ââW†V7WF&ÆRFWfVÆ÷ÖVçBVçf—&öæÖVçBÀĞ¢ÒF†RgVÆÂ6öçG&öÂF‚—2v—&VBÀĞ¢Ò&ÆVæFW"FWFW&Ö–æ—7F–2VF—BöW‡÷'B—2–×ÆVÖVçFVBÀĞ¢Ò&ö&Æ÷‚–×÷'Bö–ç7V7F–öâFFW"—2–×ÆVÖVçFVBv–ç7B&VÂÔ56öçG&7G2ÀĞ¢Ò&÷F‚vFW2æB&WV—&VÖVçBWfÇVF–öâG&—fRF†Rf–æÂ7FFRÀĞ¢Ò7FFRö'F–f7BöWf–FVæ6R&÷fVææ6R7W'f—fW2&W7F'BÀĞ¢ÒF†RÆö6¶VB66WFæ6RFW7B†2V—F†W"&VVâW†V7WFVB7V66W76gVÆÇ’–â&VÂÆö6Â&ÆVæFW"µ&ö&Æ÷‚Vçf—&öæÖVçBÂ¢¦÷"¢¢ÆÂ6öFR÷FW7G2&R6ö×ÆWFRæBöæÇ’âW‡Æ–6—FÇ’Fö7VÖVçFVBÆö6ÂVçf—&öæÖVçB6Öö¶RFW7B&VÖ–ç2àĞ Ğ¤BF†Bö–çBÂ7F÷&Vf÷&RÖW&v–æræBv—fRF†RW6W"6öæ6—6R&Wf–Wr7VÖÖ'’ÇW2ç’&VÂ×v÷&ÆBfW&–f–6F–öâ7F–ÆÂ&WV—&VBàĞ

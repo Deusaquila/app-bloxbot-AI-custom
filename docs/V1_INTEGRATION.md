@@ -67,6 +67,10 @@ Windows path growth; choose a short workspace root.
 JobService alone owns transitions and rejects COMPLETED without persisted passing
 gates, successful operations, backed evidence, and every mandatory evaluation.
 ExecutionService validates dependency graphs and checkpoints RUNNING/SUCCEEDED/FAILED.
+Each current capability resolves to one versioned deterministic procedure, and the
+procedure ID/version are checkpointed on its operation before execution. A second
+procedure for the same capability is rejected until an explicit selection policy
+exists; this work does not add a Policy Registry or AI fallback.
 The per-job Blender adapter serializes scene operations, preserves immutable derived
 scenes and uses a persisted absolute scale target so retrying 2x cannot produce 4x.
 Known V1 instructions compile deterministically; unsupported prompts fail.

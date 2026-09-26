@@ -1,15 +1,16 @@
-import { describe, expect, it } from "vitest";
 import { Effect, Layer } from "effect";
+import { describe, expect, it } from "vitest";
+import type { ExecutionOperation } from "../../src/types/job";
 import { CapabilityRouter, CapabilityRouterError } from "../control/CapabilityRouter";
 import { ExecutionService, ExecutionServiceLive } from "./ExecutionService";
-import type { ExecutionOperation } from "../../src/types/job";
+
 const op = (id: string, dependsOn: string[] = []): ExecutionOperation => ({
   id,
   dependsOn,
-  capability: "test",
+  capability: "asset.inspect",
   input: {},
   requirementIds: [],
-  executor: "SYSTEM",
+  executor: "BLENDER",
   status: "PENDING",
   attempts: 0,
 });
@@ -65,6 +66,10 @@ describe("ExecutionService", () => {
       ["a", "RUNNING", 1],
       ["a", "FAILED", 1],
     ]);
+    expect(recorded[0]).toMatchObject({
+      procedureId: "blender:asset.inspect:v1",
+      procedureVersion: 1,
+    });
   });
   it("persists results and waits for both branches before their dependent", async () => {
     const states: string[] = [];
@@ -85,5 +90,34 @@ describe("ExecutionService", () => {
     expect(states.indexOf("cRUNNING")).toBeGreaterThan(states.indexOf("aSUCCEEDED"));
     expect(states.indexOf("cRUNNING")).toBeGreaterThan(states.indexOf("bSUCCEEDED"));
     expect(result[2].result).toEqual({ value: 42 });
+    expect(result.every((operation) => operation.procedureVersion === 1)).toBe(true);
+  });
+
+  it("rejects unknown procedures and executor mismatches before side effects", async () => {
+    let calls = 0;
+    const layer = ExecutionServiceLive.pipe(
+      Layer.provide(
+        Layer.succeed(CapabilityRouter, {
+          execute: () => {
+            calls++;
+            return Effect.succeed({});
+          },
+        }),
+      ),
+    );
+
+    for (const operation of [
+      { ...op("unknown"), capability: "unknown.capability" },
+      { ...op("wrong-executor"), executor: "ROBLOX" as const },
+    ]) {
+      await expect(
+        Effect.runPromise(
+          Effect.flatMap(ExecutionService, (engine) =>
+            engine.execute({ operations: [operation] }),
+          ).pipe(Effect.provide(layer)),
+        ),
+      ).rejects.toThrow();
+    }
+    expect(calls).toBe(0);
   });
 });

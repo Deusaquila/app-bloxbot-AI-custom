@@ -1,9 +1,7 @@
 import { Context, Data, Effect, Layer } from "effect";
-
-import { findCapability } from "./capabilityRegistry";
-import { RobloxService, type RobloxAssetRef } from "../services/RobloxService";
-import type { Artifact } from "../../src/types/job";
 import { BlenderService } from "../services/BlenderService";
+import { RobloxService } from "../services/RobloxService";
+import { V1_PROCEDURE_REGISTRY } from "./procedureRegistry";
 
 export class CapabilityRouterError extends Data.TaggedError("CapabilityRouterError")<{
   message: string;
@@ -29,50 +27,21 @@ export const CapabilityRouterLive = Layer.effect(
     const roblox = yield* RobloxService;
     return CapabilityRouter.of({
       execute: (capability, input) => {
-        const definition = findCapability(capability);
-        if (!definition) {
+        const procedure = V1_PROCEDURE_REGISTRY.resolve(capability);
+        if (!procedure) {
           return Effect.fail(
             new CapabilityRouterError({ message: `Unknown capability: ${capability}` }),
           );
         }
-        if (definition.executor === "ROBLOX") {
-          const args = input as {
-            artifact: Artifact;
-            studioId: string;
-            asset: RobloxAssetRef;
-            fingerprint: unknown;
-          };
-          const action: Effect.Effect<
-            unknown,
-            import("../services/RobloxService").RobloxServiceError
-          > =
-            capability === "roblox.import_asset"
-              ? roblox.importAsset(args.artifact, args.studioId)
-              : capability === "roblox.apply_verified_material"
-                ? roblox.applyVerifiedMaterial(args.asset, args.fingerprint)
-                : roblox.inspectAsset(args.asset);
-          return action.pipe(
-            Effect.map((value) => ({ status: "SUCCEEDED", value })),
-            Effect.mapError(
-              (cause) => new CapabilityRouterError({ message: "Roblox capability failed", cause }),
-            ),
-          );
-        }
-        if (definition.executor !== "BLENDER") {
-          return Effect.fail(
-            new CapabilityRouterError({
-              message: `Executor ${definition.executor} is not wired yet`,
-            }),
-          );
-        }
-        return blender
-          .executeCapability(capability, input)
-          .pipe(
-            Effect.mapError(
-              (cause) =>
-                new CapabilityRouterError({ message: `Capability ${capability} failed`, cause }),
-            ),
-          );
+        return procedure.invoke({ blender, roblox }, input).pipe(
+          Effect.map((value) =>
+            procedure.executor === "ROBLOX" ? { status: "SUCCEEDED", value } : value,
+          ),
+          Effect.mapError(
+            (cause) =>
+              new CapabilityRouterError({ message: `Capability ${capability} failed`, cause }),
+          ),
+        );
       },
     });
   }),

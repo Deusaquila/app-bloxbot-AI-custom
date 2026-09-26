@@ -85,6 +85,8 @@ export const ExecutionOperationSchema = Schema.Struct({
   executor: ExecutorSchema,
   status: OperationStatusSchema,
   attempts: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  procedureId: Schema.optional(NonEmptyString),
+  procedureVersion: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.positive())),
   result: Schema.optional(Schema.Unknown),
   error: Schema.optional(Schema.String),
 });

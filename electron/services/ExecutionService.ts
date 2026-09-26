@@ -1,7 +1,8 @@
-import { OpenCloudError } from "./RobloxOpenCloudAssetService";
 import { Context, Data, Effect, Layer } from "effect";
 import type { ExecutionOperation, ExecutionPlan } from "../../src/types/job";
 import { CapabilityRouter } from "../control/CapabilityRouter";
+import { V1_PROCEDURE_REGISTRY } from "../control/procedureRegistry";
+import { OpenCloudError } from "./RobloxOpenCloudAssetService";
 export class ExecutionServiceError extends Data.TaggedError("ExecutionServiceError")<{
   message: string;
   operationId?: string;
@@ -29,7 +30,13 @@ export function validateExecutionPlan(plan: ExecutionPlan): void {
       (op) => !visited.has(op.id) && op.dependsOn.every((id) => visited.has(id)),
     );
     if (!ready.length) throw new Error("Cyclic execution graph");
-    ready.forEach((op) => visited.add(op.id));
+    for (const operation of ready) visited.add(operation.id);
+  }
+  for (const operation of plan.operations) {
+    const procedure = V1_PROCEDURE_REGISTRY.resolve(operation.capability);
+    if (!procedure) throw new Error(`No procedure registered for ${operation.capability}`);
+    if (procedure.executor !== operation.executor)
+      throw new Error(`Executor mismatch for ${operation.capability}`);
   }
 }
 function safeFailure(capability: string, error: unknown): string {
@@ -39,13 +46,13 @@ function safeFailure(capability: string, error: unknown): string {
       return (
         "Open Cloud " +
         cursor.code +
-        (cursor.httpStatus ? " HTTP " + cursor.httpStatus : "") +
+        (cursor.httpStatus ? ` HTTP ${cursor.httpStatus}` : "") +
         ": " +
         cursor.message
       );
     cursor = (cursor as { cause?: unknown }).cause;
   }
-  return "Capability failed: " + capability;
+  return `Capability failed: ${capability}`;
 }
 export const ExecutionServiceLive = Layer.effect(
   ExecutionService,
@@ -65,7 +72,21 @@ export const ExecutionServiceLive = Layer.effect(
             const results = yield* Effect.all(
               ready.map((op) =>
                 Effect.gen(function* () {
-                  const running = { ...op, status: "RUNNING" as const, attempts: op.attempts + 1 };
+                  const procedure = V1_PROCEDURE_REGISTRY.resolve(op.capability);
+                  if (!procedure)
+                    return yield* Effect.fail(
+                      new ExecutionServiceError({
+                        message: `No procedure registered for ${op.capability}`,
+                        operationId: op.id,
+                      }),
+                    );
+                  const running = {
+                    ...op,
+                    procedureId: procedure.id,
+                    procedureVersion: procedure.version,
+                    status: "RUNNING" as const,
+                    attempts: op.attempts + 1,
+                  };
                   yield* onOperation(running);
                   const outcome = yield* router
                     .execute(op.capability, {
@@ -91,10 +112,21 @@ export const ExecutionServiceLive = Layer.effect(
             const failed = results.find((op) => op.status === "FAILED");
             if (failed)
               return yield* Effect.fail(
-                new ExecutionServiceError({ message: failed.error!, operationId: failed.id }),
+                new ExecutionServiceError({
+                  message: failed.error ?? `Capability failed: ${failed.capability}`,
+                  operationId: failed.id,
+                }),
               );
           }
-          return plan.operations.map((op) => completed.get(op.id)!);
+          const orderedResults = plan.operations.flatMap((op) => {
+            const result = completed.get(op.id);
+            return result ? [result] : [];
+          });
+          if (orderedResults.length !== plan.operations.length)
+            return yield* Effect.fail(
+              new ExecutionServiceError({ message: "Execution completed with a missing result" }),
+            );
+          return orderedResults;
         }).pipe(
           Effect.mapError((cause) =>
             cause instanceof ExecutionServiceError
