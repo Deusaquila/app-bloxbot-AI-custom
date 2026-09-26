@@ -20,7 +20,7 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
     const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-"));
     dirs.push(root);
     const source = join(root, "source.fbx");
-    const script = `import bpy,sys\nbpy.ops.wm.read_factory_settings(use_empty=True)\nfor x in (0,4):\n bpy.ops.mesh.primitive_cube_add(location=(x,0,0))\nbpy.ops.export_scene.fbx(filepath=sys.argv[-1],bake_anim=False)\n`;
+    const script = await readFile("electron/blender/create_test_fbx.py", "utf8");
     await Effect.runPromise(
       runBlenderScript(
         { executable: executable! },
@@ -66,6 +66,13 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
       ).toMatchObject({ valid: true });
       const final = (await invoke("asset.inspect")).value as AssetFingerprint;
       expect(matchesScale(initial.dimensions, final.dimensions, 2)).toBe(true);
+      await invoke("transform.scale_uniform", { expected: 2 });
+      const retry = (await invoke("asset.inspect")).value as AssetFingerprint;
+      expect(matchesScale(initial.dimensions, retry.dimensions, 2)).toBe(true);
+      await invoke("asset.export_fbx");
+      expect(
+        (await invoke("asset.verify_material", { expected: [0, 0, 0, 1] })).value,
+      ).toMatchObject({ valid: true });
       const output = (await invoke("asset.export_fbx")).value as { artifact: typeof artifact };
       const verify = ManagedRuntime.make(
         makeBlenderServiceLayer({

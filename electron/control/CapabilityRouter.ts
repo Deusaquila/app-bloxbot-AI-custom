@@ -11,7 +11,10 @@ export class CapabilityRouterError extends Data.TaggedError("CapabilityRouterErr
 }> {}
 
 export interface CapabilityRouterApi {
-  readonly execute: (capability: string, input: unknown) => Effect.Effect<unknown, CapabilityRouterError>;
+  readonly execute: (
+    capability: string,
+    input: unknown,
+  ) => Effect.Effect<unknown, CapabilityRouterError>;
 }
 
 export class CapabilityRouter extends Context.Tag("CapabilityRouter")<
@@ -28,25 +31,48 @@ export const CapabilityRouterLive = Layer.effect(
       execute: (capability, input) => {
         const definition = findCapability(capability);
         if (!definition) {
-          return Effect.fail(new CapabilityRouterError({ message: `Unknown capability: ${capability}` }));
+          return Effect.fail(
+            new CapabilityRouterError({ message: `Unknown capability: ${capability}` }),
+          );
         }
         if (definition.executor === "ROBLOX") {
-          const args = input as { artifact: Artifact; studioId: string; asset: RobloxAssetRef };
-          const action: Effect.Effect<unknown, import("../services/RobloxService").RobloxServiceError> = capability === "roblox.import_asset" ? roblox.importAsset(args.artifact, args.studioId)
-            : roblox.inspectAsset(args.asset);
-          return action.pipe(Effect.map(value => ({ status: "SUCCEEDED", value })),
-            Effect.mapError(cause => new CapabilityRouterError({ message: "Roblox capability failed", cause })));
+          const args = input as {
+            artifact: Artifact;
+            studioId: string;
+            asset: RobloxAssetRef;
+            fingerprint: unknown;
+          };
+          const action: Effect.Effect<
+            unknown,
+            import("../services/RobloxService").RobloxServiceError
+          > =
+            capability === "roblox.import_asset"
+              ? roblox.importAsset(args.artifact, args.studioId)
+              : capability === "roblox.apply_verified_material"
+                ? roblox.applyVerifiedMaterial(args.asset, args.fingerprint)
+                : roblox.inspectAsset(args.asset);
+          return action.pipe(
+            Effect.map((value) => ({ status: "SUCCEEDED", value })),
+            Effect.mapError(
+              (cause) => new CapabilityRouterError({ message: "Roblox capability failed", cause }),
+            ),
+          );
         }
         if (definition.executor !== "BLENDER") {
           return Effect.fail(
-            new CapabilityRouterError({ message: `Executor ${definition.executor} is not wired yet` }),
+            new CapabilityRouterError({
+              message: `Executor ${definition.executor} is not wired yet`,
+            }),
           );
         }
-        return blender.executeCapability(capability, input).pipe(
-          Effect.mapError((cause) =>
-            new CapabilityRouterError({ message: `Capability ${capability} failed`, cause }),
-          ),
-        );
+        return blender
+          .executeCapability(capability, input)
+          .pipe(
+            Effect.mapError(
+              (cause) =>
+                new CapabilityRouterError({ message: `Capability ${capability} failed`, cause }),
+            ),
+          );
       },
     });
   }),

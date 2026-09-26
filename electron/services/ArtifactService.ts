@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { copyFile, mkdir, stat } from "node:fs/promises";
+import { extname, join } from "node:path";
 
 import { Context, Data, Effect, Layer } from "effect";
 
@@ -22,7 +22,9 @@ export interface RegisterArtifactInput {
 }
 
 export interface ArtifactServiceApi {
-  readonly registerFile: (input: RegisterArtifactInput) => Effect.Effect<Artifact, ArtifactServiceError>;
+  readonly registerFile: (
+    input: RegisterArtifactInput,
+  ) => Effect.Effect<Artifact, ArtifactServiceError>;
 }
 
 export class ArtifactService extends Context.Tag("ArtifactService")<
@@ -48,7 +50,10 @@ export const ArtifactServiceLive = Layer.succeed(
         try: async () => {
           await mkdir(input.destinationDirectory, { recursive: true });
           const id = randomUUID();
-          const destination = join(input.destinationDirectory, `${id}-${basename(input.sourcePath)}`);
+          const destination = join(
+            input.destinationDirectory,
+            `${id}${extname(input.sourcePath).toLowerCase()}`,
+          );
           await copyFile(input.sourcePath, destination);
           return {
             id,
@@ -56,12 +61,16 @@ export const ArtifactServiceLive = Layer.succeed(
             type: input.type,
             path: destination,
             ...(input.parentArtifactId ? { parentArtifactId: input.parentArtifactId } : {}),
-            ...(input.createdByOperationId ? { createdByOperationId: input.createdByOperationId } : {}),
+            ...(input.createdByOperationId
+              ? { createdByOperationId: input.createdByOperationId }
+              : {}),
             hash: await hashFile(destination),
+            bytes: (await stat(destination)).size,
             createdAt: new Date().toISOString(),
           };
         },
-        catch: (cause) => new ArtifactServiceError({ message: "Failed to register artifact", cause }),
+        catch: (cause) =>
+          new ArtifactServiceError({ message: "Failed to register artifact", cause }),
       }),
   }),
 );

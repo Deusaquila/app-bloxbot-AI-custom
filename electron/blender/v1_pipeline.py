@@ -94,10 +94,15 @@ def execute():
             raise ValueError("Scale must be finite and positive")
         # Scale translation as well as dimensions, including separated root objects.
         from mathutils import Matrix
-        transform = Matrix.Scale(factor, 4)
+        # Persist the absolute target so a retry never turns 2x into 4x.
+        previous = bpy.context.scene.get("bloxbot_v1_scale_factor", 1.0)
+        if not isinstance(previous, (float, int)) or not math.isfinite(previous) or previous <= 0:
+            raise ValueError("Invalid persisted scale factor")
+        transform = Matrix.Scale(factor / previous, 4)
         for obj in bpy.context.scene.objects:
             if obj.parent is None:
                 obj.matrix_world = transform @ obj.matrix_world
+        bpy.context.scene["bloxbot_v1_scale_factor"] = factor
     elif capability == "asset.verify_material":
         expected = payload["expected"]
         if not valid_rgba(expected):
@@ -112,8 +117,10 @@ def execute():
         destination = payload["destination"]
         os.makedirs(os.path.dirname(destination), exist_ok=True)
         bpy.ops.export_scene.fbx(filepath=destination, use_selection=False, object_types={'MESH', 'ARMATURE', 'EMPTY'},
-                                 add_leaf_bones=False, bake_anim=False, axis_forward='-Z', axis_up='Y')
-        return {"path": destination, "fingerprint": inspect()}
+                                 add_leaf_bones=False, bake_anim=False, apply_scale_options='FBX_SCALE_UNITS', axis_forward='-Z', axis_up='Y')
+        if not os.path.isfile(destination) or os.path.getsize(destination) == 0:
+            raise ValueError("FBX export produced no data")
+        return {"path": destination, "fingerprint": inspect(), "bytes": os.path.getsize(destination), "blenderVersion": bpy.app.version_string}
     else:
         raise ValueError("Unsupported Blender capability: " + capability)
     bpy.context.view_layer.update()

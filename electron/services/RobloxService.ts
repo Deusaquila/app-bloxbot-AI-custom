@@ -23,6 +23,10 @@ export class RobloxServiceError extends Data.TaggedError("RobloxServiceError")<{
 }> {}
 
 export interface RobloxServiceApi {
+  readonly applyVerifiedMaterial: (
+    asset: RobloxAssetRef,
+    fingerprint: unknown,
+  ) => Effect.Effect<RobloxAssetFingerprint, RobloxServiceError>;
   readonly importAsset: (
     artifact: Artifact,
     studioId: string,

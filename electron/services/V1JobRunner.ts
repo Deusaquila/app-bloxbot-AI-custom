@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import type { AssetFingerprint, Vector3 } from "../../src/types/asset";
 import type { Artifact, Evidence, ExecutionOperation, Job } from "../../src/types/job";
@@ -109,6 +109,16 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
         };
       }).pipe(Effect.asVoid);
     const work = Effect.gen(function* () {
+      const discovered = yield* broker.listTools;
+      const contract = discovered.tools
+        .map(({ name, description, inputSchema }) => ({ name, description, inputSchema }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+      yield* addEvidence(
+        evidence("ROBLOX", "mcp.contract", {
+          sha256: createHash("sha256").update(JSON.stringify(contract)).digest("hex"),
+          tools: contract,
+        }),
+      );
       yield* jobs.transition(job.id, "INSPECTING");
       const workspace = yield* workspaces.ensureJob(job.id);
       const original = yield* artifacts.registerFile({
@@ -132,6 +142,10 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
       }).pipe(Layer.provide(Layer.succeed(ArtifactService, artifacts)));
       const cloud = makeRobloxServiceLayer({
         ...options.openCloud,
+        onReceipt: (receipt) =>
+          Effect.runPromise(
+            addEvidence(evidence("ROBLOX", "upload.receipt", receipt)).pipe(Effect.asVoid),
+          ),
         onOperation: (path) =>
           Effect.runPromise(
             addEvidence(evidence("ROBLOX", "upload.operation", { path })).pipe(Effect.asVoid),
@@ -139,6 +153,12 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
         onUploaded: (artifactId, id) =>
           Effect.runPromise(
             addEvidence(evidence("ROBLOX", "upload.completed", { artifactId, assetId: id })).pipe(
+              Effect.asVoid,
+            ),
+          ),
+        onInserted: (asset, result) =>
+          Effect.runPromise(
+            addEvidence(evidence("ROBLOX", "import.inserted", { asset, result })).pipe(
               Effect.asVoid,
             ),
           ),
@@ -254,6 +274,18 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
           artifact: output.artifact,
           studioId: input.studioId,
         }) as Effect.Effect<RobloxAssetRef, unknown>;
+        const projected = yield* perform("roblox.apply_verified_material", {
+          asset: imported,
+          fingerprint: output.fingerprint,
+        });
+        yield* addEvidence(
+          evidence("ROBLOX", "material.projected", {
+            imported,
+            exportedArtifactId: output.artifact.id,
+            exportedHash: output.artifact.hash,
+            observed: projected,
+          }),
+        );
         yield* jobs.transition(job.id, "VERIFYING_GATE_2");
         const observed = yield* perform("roblox.inspect_asset", {
           asset: imported,

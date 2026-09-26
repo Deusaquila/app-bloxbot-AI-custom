@@ -12,6 +12,7 @@ export const CapabilityIdSchema = Schema.Literal(
   "asset.export_fbx",
   "roblox.import_asset",
   "roblox.inspect_asset",
+  "roblox.apply_verified_material",
 );
 export type CapabilityId = typeof CapabilityIdSchema.Type;
 
@@ -29,6 +30,7 @@ export const V1_CAPABILITIES: readonly CapabilityDefinition[] = [
   { id: "asset.export_fbx", executor: "BLENDER" },
   { id: "roblox.import_asset", executor: "ROBLOX" },
   { id: "roblox.inspect_asset", executor: "ROBLOX" },
+  { id: "roblox.apply_verified_material", executor: "ROBLOX" },
 ];
 
 export function findCapability(id: string): CapabilityDefinition | undefined {

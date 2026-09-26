@@ -12,7 +12,7 @@ export function determineJobOutcome(
 ): JobOutcome {
   if (!gate1.passed) return { completed: false, reason: "GATE_1_FAILED" };
   if (!gate2.passed) return { completed: false, reason: "GATE_2_FAILED" };
-  if (evaluations.some((evaluation) => evaluation.status !== "PASS")) {
+  if (evaluations.length === 0 || evaluations.some((evaluation) => evaluation.status !== "PASS")) {
     return { completed: false, reason: "REQUIREMENT_FAILED" };
   }
   return { completed: true };

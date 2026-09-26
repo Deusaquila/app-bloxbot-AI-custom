@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Effect, Layer } from "effect";
+import { AssetFingerprintSchema } from "../../src/types/asset";
+import { Effect, Layer, Schema } from "effect";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import {
   RobloxService,
@@ -8,7 +9,7 @@ import {
   type RobloxAssetFingerprint,
 } from "./RobloxService";
 import { StudioMcpBroker } from "./StudioMcpBroker";
-import { uploadFbx, type OpenCloudOptions } from "./RobloxOpenCloud";
+import { RobloxOpenCloudAssetService, type OpenCloudOptions } from "./RobloxOpenCloudAssetService";
 
 export function readStudioJson(result: CallToolResult): unknown {
   if (result.isError) throw new Error("Studio tool failed");
@@ -35,7 +36,7 @@ local parts, colors, textured = {}, {}, 0
 local lo, hi = Vector3.new(math.huge, math.huge, math.huge), Vector3.new(-math.huge, -math.huge, -math.huge)
 for _, item in root:GetDescendants() do
   assert(not item:IsA("LuaSourceContainer"), "Imported geometry contains scripts")
-  if item:IsA("BasePart") then
+  if item:IsA("BasePart") and not (item.ClassName == "Part" and item.Name == "RootPart" and item.Transparency == 1) then
     table.insert(parts, item)
     table.insert(colors, {item.Color.R, item.Color.G, item.Color.B, 1-item.Transparency})
     local hasTexture = item:IsA("MeshPart") and item.TextureID ~= ""
@@ -86,12 +87,14 @@ export function makeRobloxServiceLayer(
   options: OpenCloudOptions & {
     onUploaded?: (artifactId: string, assetId: string) => Promise<void>;
     onImportIntent?: (asset: RobloxAssetRef) => Promise<void>;
+    onInserted?: (asset: RobloxAssetRef, result: CallToolResult) => Promise<void>;
   },
 ) {
   return Layer.effect(
     RobloxService,
     Effect.gen(function* () {
       const broker = yield* StudioMcpBroker;
+      const openCloud = new RobloxOpenCloudAssetService(options);
       const inspect = (asset: RobloxAssetRef) =>
         broker
           .callTool("execute_luau", {
@@ -105,6 +108,37 @@ export function makeRobloxServiceLayer(
             ),
           );
       return RobloxService.of({
+        applyVerifiedMaterial: (asset, fingerprint) =>
+          Effect.gen(function* () {
+            const exported = yield* Schema.decodeUnknown(AssetFingerprintSchema)(fingerprint);
+            if (
+              !exported.materials.length ||
+              !exported.materials.every(
+                (m) =>
+                  m.baseColor?.length === 4 &&
+                  m.baseColor.every((n, i) => Math.abs(n - [0, 0, 0, 1][i]) <= 1e-5),
+              )
+            )
+              return yield* Effect.fail(new Error("Uniform black export evidence is required"));
+            const before = yield* inspect(asset);
+            if (before.texturedParts !== 0 || before.objects !== exported.meshes)
+              return yield* Effect.fail(
+                new Error("Imported mesh/material structure differs from the export"),
+              );
+            const result = yield* broker.callTool("execute_luau", {
+              studio_id: asset.studioId,
+              datamodel_type: "Edit",
+              code: materialProjectionCode(asset.instanceName),
+            });
+            if (result.isError)
+              return yield* Effect.fail(new Error("Verified material projection failed"));
+            return yield* inspect(asset);
+          }).pipe(
+            Effect.mapError(
+              (cause) =>
+                new RobloxServiceError({ message: "Verified material projection failed", cause }),
+            ),
+          ),
         importAsset: (artifact, studioId) =>
           Effect.gen(function* () {
             if (!artifact.path) return yield* Effect.fail(new Error("Import artifact has no path"));
@@ -122,7 +156,11 @@ export function makeRobloxServiceLayer(
               )
             )
               return yield* Effect.fail(new Error("Selected Studio must be in Edit mode"));
-            const id = yield* Effect.tryPromise(() => uploadFbx(artifact.path!, options));
+            const receipt = yield* Effect.tryPromise({
+              try: () => openCloud.upload(artifact),
+              catch: (cause) => cause,
+            });
+            const id = receipt.assetId;
             yield* Effect.tryPromise(async () => options.onUploaded?.(artifact.id, id));
             const asset = {
               id,
@@ -139,6 +177,7 @@ export function makeRobloxServiceLayer(
             });
             if (result.isError)
               return yield* Effect.fail(new Error("Studio asset insertion failed"));
+            yield* Effect.tryPromise(async () => options.onInserted?.(asset, result));
             yield* inspect(asset);
             return asset;
           }).pipe(
@@ -173,4 +212,32 @@ export function makeRobloxServiceLayer(
       });
     }),
   );
+}
+
+/** Reapply the verified uniform export material that Open Cloud drops. Idempotent. */
+export function materialProjectionCode(instanceName: string): string {
+  inspectionCode(instanceName); // Validate the generated identifier before interpolating it.
+  return `
+local matches = {}
+for _, child in workspace:GetChildren() do
+  if child.Name == "${instanceName}" then table.insert(matches, child) end
+end
+assert(#matches == 1 and matches[1]:IsA("Model"), "Expected the exact imported model")
+local changed = 0
+for _, item in matches[1]:GetDescendants() do
+  if item:IsA("MeshPart") then
+    assert(item.TextureID == "", "Unexpected imported texture")
+    for _, child in item:GetDescendants() do
+      assert(not child:IsA("SurfaceAppearance") and not child:IsA("Decal") and not child:IsA("Texture"), "Unexpected material overlay")
+    end
+    item.Color = Color3.new(0, 0, 0)
+    item.Transparency = 0
+    item.Material = Enum.Material.SmoothPlastic
+    item.MaterialVariant = ""
+    changed += 1
+  end
+end
+assert(changed > 0, "No imported mesh geometry")
+return game:GetService("HttpService"):JSONEncode({changedMeshes=changed, color={0,0,0,1}})
+`;
 }

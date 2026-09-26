@@ -52,11 +52,14 @@ export function makeBlenderServiceLayer(options: BlenderJobOptions) {
               { flag: "wx" },
             ),
           );
-          yield* runBlenderScript(options, {
+          const log = yield* runBlenderScript(options, {
             script: options.script,
             scriptPath: join(options.workspace.blender, id + ".py"),
             args: [requestPath, responsePath],
           });
+          yield* Effect.tryPromise(() =>
+            writeFile(join(options.workspace.blender, id + ".log.json"), JSON.stringify(log)),
+          );
           const value = yield* Effect.tryPromise(
             async () => JSON.parse(await readFile(responsePath, "utf8")) as Record<string, unknown>,
           );
@@ -90,7 +93,15 @@ export function makeBlenderServiceLayer(options: BlenderJobOptions) {
               createdByOperationId: operationId,
             });
             if (capability !== "asset.export_fbx") current = artifact;
-            return { status: "SUCCEEDED" as const, value: { artifact, fingerprint } };
+            return {
+              status: "SUCCEEDED" as const,
+              value: {
+                artifact,
+                fingerprint,
+                bytes: value.bytes,
+                blenderVersion: value.blenderVersion,
+              },
+            };
           }
           if (capability === "asset.verify_material" && typeof value.valid !== "boolean") {
             return yield* Effect.fail(new Error("Malformed material verification"));

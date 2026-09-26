@@ -38,6 +38,7 @@ export const ArtifactSchema = Schema.Struct({
   parentArtifactId: Schema.optional(NonEmptyString),
   createdByOperationId: Schema.optional(NonEmptyString),
   hash: Schema.optional(NonEmptyString),
+  bytes: Schema.optional(Schema.Number.pipe(Schema.int(), Schema.nonNegative())),
   createdAt: NonEmptyString,
 });
 export type Artifact = typeof ArtifactSchema.Type;

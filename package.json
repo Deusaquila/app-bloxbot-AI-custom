@@ -28,7 +28,9 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit && tsc -p electron/tsconfig.json --noEmit && tsc -p scripts/tsconfig.json --noEmit",
     "test:control": "vitest run --config vitest.control.config.ts",
-    "v1": "node scripts/v1-job.cjs"
+    "v1": "node scripts/v1-job.cjs",
+    "test:blender": "node scripts/test-blender.cjs",
+    "check:v1-environment": "node scripts/check-v1-environment.cjs"
   },
   "dependencies": {
     "@lexical/react": "^0.48.0",
@@ -77,5 +79,9 @@
     "vite": "^8.1.5",
     "vite-plugin-electron": "^1.1.0",
     "vitest": "^4.1.10"
+  },
+  "packageManager": "pnpm@12.6.0",
+  "engines": {
+    "node": ">=22.12.0 <23"
   }
 }

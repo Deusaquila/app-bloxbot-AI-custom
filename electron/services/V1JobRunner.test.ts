@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { Effect, Layer } from "effect";
 import { makeV1Runtime } from "./V1Runtime";
 import { runV1Job } from "./V1JobRunner";
+import { hasCompletionEvidence } from "../control/completionEvidence";
 import { JobService } from "./JobService";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 const controls = vi.hoisted(() => ({
@@ -87,6 +88,15 @@ vi.mock("./RobloxServiceLive", async () => {
                   colors: [controls.badRobloxColor ? [1, 0, 0, 1] : [0, 0, 0, 1]],
                   dimensions: asset.id === "1" ? { x: 1, y: 2, z: 3 } : { x: 2, y: 4, z: 6 },
                 }),
+          applyVerifiedMaterial: () =>
+            Effect.succeed({
+              objects: 1,
+              materials: 1,
+              hierarchyValid: true,
+              texturedParts: 0,
+              colors: [[0, 0, 0, 1]],
+              dimensions: { x: 2, y: 4, z: 6 },
+            }),
           captureEvidence: () => Effect.succeed([]),
         }),
       ),
@@ -106,6 +116,7 @@ afterEach(async () => {
 });
 const broker = Layer.succeed(StudioMcpBroker, {
   info: { url: "test" },
+  listTools: Effect.succeed({ tools: [] }),
   callTool: () => Effect.succeed({ content: [] }),
 });
 async function fixture() {
@@ -131,6 +142,18 @@ describe("V1 orchestration (adapter-boundary fakes, not Gate 2 proof)", () => {
       ),
     );
     expect(job.state).toBe("COMPLETED");
+    expect(hasCompletionEvidence(job)).toBe(true);
+    expect(hasCompletionEvidence({ ...job, evidence: [] })).toBe(false);
+    expect(hasCompletionEvidence({ ...job, requirements: [] })).toBe(false);
+    expect(hasCompletionEvidence({ ...job, executionPlan: { operations: [] } })).toBe(false);
+    expect(
+      hasCompletionEvidence({
+        ...job,
+        requirements: job.requirements.map((r) => ({ ...r, status: "PENDING" })),
+      }),
+    ).toBe(false);
+    const report = job.report as Record<string, unknown>;
+    expect(hasCompletionEvidence({ ...job, report: { ...report, evaluations: [] } })).toBe(false);
     expect(job.requirements.every((r) => r.status === "PASSED")).toBe(true);
     expect(job.environment.studioId).toBe("selected");
     expect(job.artifacts?.[0].hash).toHaveLength(64);

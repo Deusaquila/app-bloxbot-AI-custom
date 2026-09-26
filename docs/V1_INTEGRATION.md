@@ -1,115 +1,111 @@
-# V1 integration status and acceptance run
+# V1 Windows integration acceptance
 
-## Implemented
+The locked horse acceptance scenario passed on 2026-09-26 at 17:39 UTC on the shared
+Windows 11 host. Prompt: `Gör den svart och dubbelt så stor.`
 
-The V1 job path now runs inspection, deterministic compilation, a validated DAG,
-Gate 1, export, Open Cloud upload, explicitly targeted Studio import/inspection,
-Gate 2 and objective requirement evaluation. The supported prompt is
-`Gör den svart och dubbelt så stor.` (with equivalent explicit English forms).
-Unsupported or partially understood instructions fail rather than being guessed.
+## Recorded result
 
-Each job snapshots its FBX input, saves derived Blender scenes, hashes artifacts,
-and persists operations, evidence, requirements and reports in
-`~/BloxBot/control-plane.json`. This is separate from legacy chat settings.
-Existing version-1 snapshots remain readable. Interrupted jobs become failed or
-cancelled on startup; uploads/imports are not replayed automatically. Saved upload
-operation paths and import intents support inspecting uncertain remote outcomes.
-Run only one controller (desktop or CLI) against a workspace at a time; the JSON
-store does not implement cross-process locking.
+- Job: `9f545a52-2452-4d95-bdc5-c2df97e91d11`, **COMPLETED**.
+- Gate 1: passed before export. Gate 2: passed after real selected-Studio insertion
+  and reinspection. Both mandatory requirements: PASS.
+- Blender: **4.2.3 LTS**, Node: **22.23.3**, pnpm: **12.6.0**.
+- Input: supplied horse ZIP's `tripo_convert_d5a0c727-eaa4-401e-b789-24d5ce356f1f.fbx`.
+- Input SHA-256: `20fb7fee8310a13e87dd4d4cc865bd33b62b0af49da71b03cd629a7fd136bf5b`.
+- Export: 779,596 bytes; SHA-256
+  `bf15019e125f386bfa97693292c5017b17e40e2b639ec9dd36d6cb9652ecaf4c`.
+- Open Cloud output operation: `operations/1d2c97b5-e468-4aa8-ba5b-e066f3f00395`;
+  asset **102686737847248**, revision 1. The API omitted moderation state; no
+  moderation approval is inferred from that omission. Actual Studio insertion succeeded.
+- Reference asset: **94878705772322**, revision 1.
+- Selected disposable Studio: `7485867d-33df-4782-9476-ac122e0765bf`, local Place1,
+  Place ID 0, Edit mode. Original Place1.rbxl remained separate.
+- Exact output instance: `Workspace.BloxBot_cecb64ee_06ed_4bde_9bc6_7658c3b80b73`.
+- All 13 visible mesh parts were black RGBA `[0,0,0,1]`, with no texture overlays.
+- Live contract: 28 tools; SHA-256
+  `0fdc23f4778515df5b2c153d0a67069644fb6d52b2e99ad8a5e7fe952205515b`.
 
-The graph permits parallel branches; scene access is serialized inside each job's
-Blender adapter to prevent lost edits. Independent jobs use separate workspaces.
-All mandatory color and per-axis size checks must pass before completion.
+| Studio geometry extent | Reference | Output | Ratio |
+| --- | ---: | ---: | ---: |
+| X | 0.2703704238 | 0.5407407880 | 1.9999997795 |
+| Y | 0.8444820046 | 1.6889643669 | 2.0000004235 |
+| Z | 0.9813841581 | 1.9627681971 | 1.9999998785 |
 
-## Verified on the shared Windows host, 2026-09-26
+Blender's original XYZ extents were 0.2703704983, 0.9813843071, 0.8444823822.
+The FBX Y-up conversion maps Blender Y/Z to Studio Z/Y. The original import is
+measured in the same Studio frame, avoiding an assumed studs/unit conversion.
+Independent Blender reimport of the exact uploaded export retained 13 meshes,
+9,499 triangles, black material, and doubled extents
+(0.5407410562, 1.9627684355, 1.6889649189).
 
-- Target branch started at `1f11b61`, 35 commits ahead and zero behind fetched main.
-- Existing baseline: typecheck, 202 application tests and 8 release tests passed.
-- Electron/control tests were excluded by the old test command; `test:control` now
-  includes them in `pnpm test`.
-- New automated coverage includes invalid DAGs, operation failure persistence,
-  multipart upload/poll contracts, malformed evidence, failed gates, and restart.
-- A real headless Blender 4.2 test generated two separated cubes and verified black
-  material plus doubled bounding-box dimensions through FBX export and re-import.
-  This fixture is **not** the horse acceptance asset.
-- Production build and CLI list smoke test passed.
-- Live Studio MCP initialize/tools/list inspected. `insert_asset` accepts assetId,
-  assetName, assetType, parentPath and studio_id. `execute_luau` requires code,
-  datamodel_type and studio_id; returning JSON provides evidence, printing does not.
-- Place1.rbxl was discovered and its Edit-mode Workspace inspected using Studio ID
-  `152406f7-cc28-40c6-92bf-91225c71326a`; its Place ID was 0 (local place).
+A new runtime restored the completed Job unchanged. The persisted gates,
+requirements, operations and evidence were validated again, then the exact live
+Studio output was reinspected and still passed color and scale checks.
 
-## Real horse verification (2026-09-26, 16:29 UTC)
+## Import compatibility found by the real test
 
-The supplied horse ZIP was extracted outside the repository. Its FBX is
-`tripo_convert_d5a0c727-eaa4-401e-b789-24d5ce356f1f.fbx`.
-The real V1 job `6b159778-3918-414d-917a-0bb6ca2062ac` passed Gate 1 and exported
-successfully, then failed at IMPORTING because the credential file is absent.
-No upload or Studio insertion occurred.
+The first real upload/import run failed correctly: Open Cloud discarded uniform
+FBX material colors, default Blender export scaling produced 200x meshes in Studio,
+and a generated invisible RootPart polluted geometry bounds. The successful run uses:
 
-An independent Blender re-import of the exported FBX verified:
+1. FBX Unit Scale export (`FBX_SCALE_UNITS`), also preserving Blender round-trip size.
+2. Geometry inspection excluding only the generated transparent ordinary Part named
+   RootPart; visible meshes remain subject to every color/dimension check.
+3. A separate durable `roblox.apply_verified_material` operation. It checks the
+   exported fingerprint is uniformly black, checks imported mesh count and absence
+   of texture overlays, then sets mesh color/material properties on the exact output
+   model. It reinspects afterwards. This is an explicit compatibility step, not proof
+   that Open Cloud preserved the material unaided. The cloud asset remains the FBX
+   upload; the verified final Studio instance includes the recorded material step.
 
-| Measurement | Original | Re-imported export |
-| --- | ---: | ---: |
-| X extent | 0.2703704983 | 0.5407410562 |
-| Y extent | 0.9813843071 | 1.9627685547 |
-| Z extent | 0.8444823822 | 1.6889648673 |
-| Meshes | 13 | 13 |
-| Triangles | 9499 | 9499 |
-| Bones | 33 | 33 |
+The failed run `3fb46cf4-d1e7-462b-960b-ece5d41a869f` and its two temporary assets
+remain in the disposable place as diagnostic evidence. A preceding long-path run
+failed before upload. Artifact filenames now use UUID plus extension to reduce
+Windows path growth; choose a short workspace root.
 
-All mesh materials passed black RGBA verification. Axis ratios were
-2.0000002205, 1.9999999393, and 2.0000001219.
+## Architecture and safety
 
-Input SHA-256: `20fb7fee8310a13e87dd4d4cc865bd33b62b0af49da71b03cd629a7fd136bf5b`.
+JobService alone owns transitions and rejects COMPLETED without persisted passing
+gates, successful operations, backed evidence, and every mandatory evaluation.
+ExecutionService validates dependency graphs and checkpoints RUNNING/SUCCEEDED/FAILED.
+The per-job Blender adapter serializes scene operations, preserves immutable derived
+scenes and uses a persisted absolute scale target so retrying 2x cannot produce 4x.
+Known V1 instructions compile deterministically; unsupported prompts fail.
 
-Export SHA-256: `4c444f47b37d01fdbe19fb56093d5d1c894e7ec6ad4d9a382634db58c2fef0bf`.
+RobloxOpenCloudAssetService is separate from the Studio adapter. It reads the external
+key only at request time, pins requests to the Roblox API origin, rejects redirects,
+validates operation paths and response types, limits upload size to 20 MB, snapshots
+and hashes the exact uploaded bytes, and records non-secret receipts. Creation is
+never retried automatically; transient polling retries and total duration are bounded.
+Known non-approved moderation states block insertion. No credential enters artifacts,
+logs, repository files, or CLI arguments.
 
-The local task workspace retains the source, derived artifacts, job snapshot and
-`horse-acceptance/blender-verification.json`; asset binaries are not committed.
+RobloxService uses StudioMcpBroker and the discovered live contract. Every specific
+Studio call carries the selected ID. Import intent, insertion result, material
+projection, inspections, contract hash and upload receipts are persisted.
 
-**Gate 2 and full acceptance remain UNVERIFIED.** The remaining missing input is
-the Open Cloud credential. Re-discover Studio IDs before the live run.
-Adapter-fake tests and Blender evidence are not Roblox evidence.
+Interrupted Jobs fail/cancel on restart rather than replaying uploads or mutations.
+Only one controller may use a workspace at a time; the atomic JSON store provides
+in-process serialization, not cross-process locking. Chat sessions remain separate.
 
-## Run the real acceptance test
+## Evidence and validation
 
-1. Place the Open Cloud credential at
-   `~/.config/bloxbot/roblox-open-cloud-api-key`. Do not commit or paste it into logs.
-   Creator type is `user`, creator ID `4974439157` for this integration host.
-2. Open Place1 in Studio, enable MCP, and select it in BloxBot. Leave it in Edit mode.
-3. Build/start the updated app and choose **Asset job** next to the Studio selector.
-   Choose horse.fbx, enter creator user ID 4974439157, and run the job.
-   Blender is detected at standard locations; use `BLOXBOT_BLENDER` to override.
-4. The run uploads and inserts **two** uniquely named models: the untouched source
-   reference and transformed output. Both remain for inspection. The reference
-   permits comparing dimensions in studs without assuming FBX import unit settings.
-   The job does not publish the place or change existing game objects.
-5. Inspect the completed job in `control-plane.json`: both gate reports must pass,
-   every mandatory requirement must be PASSED, and Roblox evidence must reference
-   the selected Studio and the imported instance. Texture-covered color evidence
-   is conservatively rejected. Review failed evidence instead of declaring success.
+Local acceptance workspace: `C:\Users\JM\BloxBot-v1-acceptance`.
+The `evidence/9f545a52-2452-4d95-bdc5-c2df97e91d11` directory contains the completed
+Job, contract, restart verification, independent Blender round-trip and viewport
+capture. Original/derived/export artifacts and Blender logs remain under `jobs`.
+Asset binaries and credential files are not committed.
 
-CLI alternative, from the repository (replace paths and re-discovered Studio ID):
+The acceptance ran through the application services using the repository CLI.
+The desktop IPC/UI path is wired and built; a full desktop button-driven acceptance
+run was not performed. Studio window capture timed out; MCP viewport capture worked.
+The installed Roblox mcp.bat prints malformed trailing batch lines on shutdown;
+live MCP operations succeed. The launcher was not modified.
 
-```powershell
-pnpm install --frozen-lockfile
-pnpm v1 run 'C:\path\horse.fbx' '<studio-id>' 'C:\Program Files\Blender Foundation\Blender 4.2\blender.exe' '4974439157'
-pnpm v1 list
-```
+Review history: no AGENTS.md was found in the repository/ancestors. The handoff was
+read in full; no unresolved inline PR reviews existed. The alternate old branch
+`codex/read-project-handoff-document` was inspected; its persistence work was already
+superseded by this implementation. No main merge, reset or force push was performed.
 
-Use `BLOXBOT_WORKSPACE` for an isolated CLI data directory. CLI errors return a
-nonzero exit code; read the saved report and receipts before rerunning. No automatic
-retry is made for non-idempotent upload/import operations.
-
-To repeat the real Blender-only regression:
-
-```powershell
-$env:BLOXBOT_TEST_BLENDER = 'C:\Program Files\Blender Foundation\Blender 4.2\blender.exe'
-pnpm test:control
-```
-
-Open Cloud upload contract:
-https://create.roblox.com/docs/cloud/guides/usage-assets
-
-The existing draft PR remains open; do not merge to main as part of this work.
+See [Windows setup](WINDOWS_V1_ENVIRONMENT.md) and [smoke test](V1_LOCAL_SMOKE_TEST.md).
+References: [Roblox Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets),
+[Roblox Blender export settings](https://create.roblox.com/docs/art/characters/creating/blender-configurations).
