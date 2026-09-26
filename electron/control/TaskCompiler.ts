@@ -11,6 +11,11 @@ export interface CompiledTask {
 
 export function compileKnownV1Task(prompt: string, _asset: AssetFingerprint): CompiledTask | undefined {
   const normalized = prompt.toLocaleLowerCase("sv-SE");
+  // Only known complete instructions are accepted; never silently ignore a negation or extra task.
+  const supported = new Set([
+    "gör den svart och dubbelt så stor", "make it black and twice as large", "make it black and double the size",
+  ]);
+  if (!supported.has(normalized.trim().replace(/[.!]+$/, ""))) return undefined;
   const requirements: Requirement[] = [];
   const evaluations: EvaluationSpec[] = [];
 

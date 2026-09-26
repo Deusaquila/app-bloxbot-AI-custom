@@ -5,6 +5,7 @@ import type { Artifact, Evidence } from "../../src/types/job";
 export interface RobloxAssetRef {
   id: string;
   studioId: string;
+  instanceName: string;
 }
 
 export interface RobloxAssetFingerprint {
@@ -12,6 +13,8 @@ export interface RobloxAssetFingerprint {
   materials: number;
   dimensions: { x: number; y: number; z: number };
   hierarchyValid: boolean;
+  colors: readonly (readonly number[])[];
+  texturedParts: number;
 }
 
 export class RobloxServiceError extends Data.TaggedError("RobloxServiceError")<{

@@ -1,5 +1,9 @@
 # BloxBot autonomous asset pipeline — Codex handoff
 
+## Integration update (2026-09-26)
+
+See [V1_INTEGRATION.md](V1_INTEGRATION.md) for the implemented execution path, verified checks, and exact remaining live acceptance steps. The historical implementation notes below describe the starting point; Gate 2 is still unverified.
+
 ## Mission
 
 You are the implementation agent for this repository. Continue implementing the autonomous Blender → Roblox asset pipeline in this repository. Work autonomously until the V1 milestone below is complete. Do not ask for routine approval. Ask the user only when genuinely blocked by missing credentials/environment/user action, or when a decision would materially change product direction.

@@ -1,62 +1,45 @@
 import { Context, Data, Effect, Layer } from "effect";
-
 import type { ExecutionOperation, ExecutionPlan } from "../../src/types/job";
 import { CapabilityRouter } from "../control/CapabilityRouter";
-
 export class ExecutionServiceError extends Data.TaggedError("ExecutionServiceError")<{
-  message: string;
-  operationId?: string;
-  cause?: unknown;
+  message: string; operationId?: string; cause?: unknown;
 }> {}
-
 export interface ExecutionServiceApi {
-  readonly execute: (plan: ExecutionPlan) => Effect.Effect<readonly ExecutionOperation[], ExecutionServiceError>;
+  readonly execute: (plan: ExecutionPlan, onOperation?: (operation: ExecutionOperation) => Effect.Effect<void, unknown>) => Effect.Effect<readonly ExecutionOperation[], ExecutionServiceError>;
 }
-
-export class ExecutionService extends Context.Tag("ExecutionService")<
-  ExecutionService,
-  ExecutionServiceApi
->() {}
-
-export const ExecutionServiceLive = Layer.effect(
-  ExecutionService,
-  Effect.gen(function* () {
-    const router = yield* CapabilityRouter;
-    return ExecutionService.of({
-      execute: (plan) =>
-        Effect.gen(function* () {
-          const completed = new Map<string, ExecutionOperation>();
-          while (completed.size < plan.operations.length) {
-            const ready = plan.operations.filter(
-              (operation) =>
-                !completed.has(operation.id) &&
-                operation.dependsOn.every((dependency) => completed.get(dependency)?.status === "SUCCEEDED"),
-            );
-            if (ready.length === 0) {
-              return yield* Effect.fail(
-                new ExecutionServiceError({ message: "Execution graph is blocked or cyclic" }),
-              );
-            }
-            const results = yield* Effect.all(
-              ready.map((operation) =>
-                router.execute(operation.capability, operation.input).pipe(
-                  Effect.as({ ...operation, status: "SUCCEEDED" as const, attempts: operation.attempts + 1 }),
-                  Effect.mapError(
-                    (cause) =>
-                      new ExecutionServiceError({
-                        message: `Operation ${operation.id} failed`,
-                        operationId: operation.id,
-                        cause,
-                      }),
-                  ),
-                ),
-              ),
-              { concurrency: "unbounded" },
-            );
-            for (const result of results) completed.set(result.id, result);
-          }
-          return plan.operations.map((operation) => completed.get(operation.id) ?? operation);
-        }),
-    });
-  }),
-);
+export class ExecutionService extends Context.Tag("ExecutionService")<ExecutionService, ExecutionServiceApi>() {}
+export function validateExecutionPlan(plan: ExecutionPlan): void {
+  const ids = new Set(plan.operations.map(op => op.id));
+  if (!ids.size || ids.size !== plan.operations.length) throw new Error("Empty graph or duplicate operation IDs");
+  if (plan.operations.some(op => op.dependsOn.some(id => !ids.has(id)))) throw new Error("Missing dependency");
+  const visited = new Set<string>();
+  while (visited.size < ids.size) {
+    const ready = plan.operations.filter(op => !visited.has(op.id) && op.dependsOn.every(id => visited.has(id)));
+    if (!ready.length) throw new Error("Cyclic execution graph");
+    ready.forEach(op => visited.add(op.id));
+  }
+}
+export const ExecutionServiceLive = Layer.effect(ExecutionService, Effect.gen(function* () {
+  const router = yield* CapabilityRouter;
+  return ExecutionService.of({ execute: (plan, onOperation = () => Effect.void) => Effect.gen(function* () {
+    yield* Effect.try(() => validateExecutionPlan(plan));
+    const completed = new Map<string, ExecutionOperation>();
+    while (completed.size < plan.operations.length) {
+      const ready = plan.operations.filter(op => !completed.has(op.id) && op.dependsOn.every(id => completed.get(id)?.status === "SUCCEEDED"));
+      const results = yield* Effect.all(ready.map(op => Effect.gen(function* () {
+        const running = { ...op, status: "RUNNING" as const, attempts: op.attempts + 1 };
+        yield* onOperation(running);
+        const outcome = yield* router.execute(op.capability, { ...(op.input as Record<string, unknown>), operationId: op.id }).pipe(Effect.either);
+        const result: ExecutionOperation = outcome._tag === "Right"
+          ? { ...running, status: "SUCCEEDED", result: outcome.right }
+          : { ...running, status: "FAILED", error: "Capability failed: " + op.capability };
+        yield* onOperation(result);
+        return result;
+      })), { concurrency: 4 });
+      for (const result of results) completed.set(result.id, result);
+      const failed = results.find(op => op.status === "FAILED");
+      if (failed) return yield* Effect.fail(new ExecutionServiceError({ message: failed.error!, operationId: failed.id }));
+    }
+    return plan.operations.map(op => completed.get(op.id)!);
+  }).pipe(Effect.mapError(cause => cause instanceof ExecutionServiceError ? cause : new ExecutionServiceError({ message: "Execution failed", cause }))) });
+}));

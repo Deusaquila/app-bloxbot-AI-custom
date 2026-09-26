@@ -29,19 +29,19 @@ export interface BlenderProcessResult {
 
 export function runBlenderScript(options: BlenderProcessOptions, input: BlenderScriptInput) {
   return Effect.tryPromise({
-    try: async (): Promise<BlenderProcessResult> => {
+    try: async (signal): Promise<BlenderProcessResult> => {
       await mkdir(dirname(input.scriptPath), { recursive: true });
       await writeFile(input.scriptPath, input.script, { mode: 0o600 });
       return await new Promise((resolve, reject) => {
         const child = spawn(
           options.executable,
-          ["--background", "--factory-startup", "--python", input.scriptPath, "--", ...(input.args ?? [])],
-          { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] },
+          ["--background", "--factory-startup", "--python-exit-code", "1", "--python", input.scriptPath, "--", ...(input.args ?? [])],
+          { windowsHide: true, signal, stdio: ["ignore", "pipe", "pipe"] },
         );
         let stdout = "";
         let stderr = "";
-        child.stdout.on("data", (chunk) => { stdout += chunk.toString(); });
-        child.stderr.on("data", (chunk) => { stderr += chunk.toString(); });
+        child.stdout.on("data", (chunk) => { stdout = (stdout + chunk.toString()).slice(-1_000_000); });
+        child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString()).slice(-1_000_000); });
         const timeout = setTimeout(() => {
           child.kill();
           reject(new Error("Blender process timed out"));

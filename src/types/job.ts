@@ -84,6 +84,8 @@ export const ExecutionOperationSchema = Schema.Struct({
   executor: ExecutorSchema,
   status: OperationStatusSchema,
   attempts: Schema.Number.pipe(Schema.int(), Schema.nonNegative()),
+  result: Schema.optional(Schema.Unknown),
+  error: Schema.optional(Schema.String),
 });
 export type ExecutionOperation = typeof ExecutionOperationSchema.Type;
 
@@ -134,6 +136,9 @@ export const JobSchema = Schema.Struct({
     blenderInstanceId: Schema.optional(NonEmptyString),
     studioId: Schema.optional(NonEmptyString),
   }),
+  artifacts: Schema.optional(Schema.Array(ArtifactSchema)),
+  evidence: Schema.optional(Schema.Array(EvidenceSchema)),
+  report: Schema.optional(Schema.Unknown),
   createdAt: NonEmptyString,
   updatedAt: NonEmptyString,
 });
