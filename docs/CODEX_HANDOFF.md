@@ -264,7 +264,9 @@ The current `JobStore` is a crash-safe atomic JSON snapshot boundary, not SQLite
 
 However, artifacts/evidence/operation results need durable persistence before V1 is considered robust. Evolve the store coherently. Prefer a backward-compatible snapshot migration or a clean control-plane store refactor over scattering unrelated files.
 
-## Known areas to review
+## Known areas from the original handoff
+
+This checklist describes pre-integration concerns and is historical, not a list of current blockers. Use the integration update, current tests, and the documented desktop smoke test above to assess what remains.
 
 - Ensure EventStore/JobService error channels remain concrete and typed.
 - Ensure the execution engine records RUNNING/SUCCEEDED/FAILED rather than only returning final in-memory operations.
