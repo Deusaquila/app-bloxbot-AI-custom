@@ -39,10 +39,38 @@ All mandatory color and per-axis size checks must pass before completion.
 - Place1.rbxl was discovered and its Edit-mode Workspace inspected using Studio ID
   `152406f7-cc28-40c6-92bf-91225c71326a`; its Place ID was 0 (local place).
 
-**Gate 2 and the horse acceptance test have not passed.** No asset was uploaded or
-inserted by this implementation during development. The credential file was absent
-at the supplied path and horse.fbx was unavailable. Adapter-fake tests are not live
-Roblox evidence. Re-discover Studio IDs before a later run.
+## Real horse verification (2026-09-26, 16:29 UTC)
+
+The supplied horse ZIP was extracted outside the repository. Its FBX is
+`tripo_convert_d5a0c727-eaa4-401e-b789-24d5ce356f1f.fbx`.
+The real V1 job `6b159778-3918-414d-917a-0bb6ca2062ac` passed Gate 1 and exported
+successfully, then failed at IMPORTING because the credential file is absent.
+No upload or Studio insertion occurred.
+
+An independent Blender re-import of the exported FBX verified:
+
+| Measurement | Original | Re-imported export |
+| --- | ---: | ---: |
+| X extent | 0.2703704983 | 0.5407410562 |
+| Y extent | 0.9813843071 | 1.9627685547 |
+| Z extent | 0.8444823822 | 1.6889648673 |
+| Meshes | 13 | 13 |
+| Triangles | 9499 | 9499 |
+| Bones | 33 | 33 |
+
+All mesh materials passed black RGBA verification. Axis ratios were
+2.0000002205, 1.9999999393, and 2.0000001219.
+
+Input SHA-256: `20fb7fee8310a13e87dd4d4cc865bd33b62b0af49da71b03cd629a7fd136bf5b`.
+
+Export SHA-256: `4c444f47b37d01fdbe19fb56093d5d1c894e7ec6ad4d9a382634db58c2fef0bf`.
+
+The local task workspace retains the source, derived artifacts, job snapshot and
+`horse-acceptance/blender-verification.json`; asset binaries are not committed.
+
+**Gate 2 and full acceptance remain UNVERIFIED.** The remaining missing input is
+the Open Cloud credential. Re-discover Studio IDs before the live run.
+Adapter-fake tests and Blender evidence are not Roblox evidence.
 
 ## Run the real acceptance test
 
