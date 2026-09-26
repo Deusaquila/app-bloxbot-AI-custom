@@ -1,4 +1,7 @@
 export const channels = {
+  pickV1Asset: "v1:pick-asset",
+  runV1Job: "v1:run",
+  listV1Jobs: "v1:list",
   compileExplorerProgram: "explorer:compile-program",
   checkForUpdate: "app:check-for-update",
   getOpenCodeInfo: "opencode:get-info",
