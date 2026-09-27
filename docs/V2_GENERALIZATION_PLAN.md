@@ -6,6 +6,10 @@ Status: in progress. The verified horse V1 run is regression case 1, not evidenc
 
 V2 passes only when an unseen supported asset and an unseen feasible instruction reach an inspected, explicitly selected Roblox Studio instance with every mandatory requirement supported by evidence, or return a precise unresolved requirement. A successful upload or import alone is insufficient. Record technical transfer and prompt compliance separately. Never count `UNKNOWN` as `PASS`.
 
+## Corpus V1 boundary
+
+Corpus V1 is a separate evaluation/development subsystem. It may consume the production `AssetFingerprint`, Asset Inspector, and asset/artifact contracts; production contracts remain authoritative. Keep production inspection callable without Electron UI, a complete Job, or corpus services. Normal BloxBot Jobs must not depend on Poly Haven, a corpus database, or benchmark infrastructure. Do not add Corpus-specific behavior to inspection semantics. Wait to integrate a Benchmark Runner until Requirement IR and Job boundaries are stable. Use early corpus assets as held-out evidence, never as asset-specific product rules.
+
 ## Phase 0: lock the baseline
 
 1. Keep `horse_black_2x` as regression case 1, including Gate 1, exact Studio Gate 2, both requirements, persistence, and restart verification.
@@ -20,6 +24,8 @@ Exit: the existing acceptance evidence remains reproducible and no V2 change cre
 2. Keep the deterministic compiler as a fast path. Add a bounded LLM compiler fallback for unsupported requests, using the compact asset fingerprint. The model proposes requirements only; it cannot change Job state or invoke arbitrary Blender code. Reject ambiguous, contradictory, ungrounded targets and unsupported requirement types explicitly.
 3. Expand deterministic asset inspection for geometry, material, rig and hierarchy facts needed by that compiler. Mark unknown facts explicitly and keep expensive inspection bounded.
 4. Replace the black-only Roblox material projection with verified property projection. Require traceable mesh/material mapping and reinspection. Reject cases whose mapping, textures or alpha cannot yet be reproduced reliably.
+
+For the first hosted LLM role trials, prefer a free OpenCode Zen model. The first candidate for text-to-Requirement-IR compilation is `opencode/space-bunny-free`; model availability and terms must be rechecked when a trial is run. Do not select the visual prompt-compliance evaluator yet: compare image-focused models when standardized result renders and semantic evaluation are ready. A compiler adapter is not permission to wire model output into the live Job path; that remains gated on an explicit prompt-coverage strategy and end-to-end evidence.
 
 Exit: a non-black, objective instruction compiles to validated requirements, executes with a known capability, and is checked against actual Studio evidence. The horse case remains green.
 
@@ -45,10 +51,13 @@ Collect enough real Job observations before enabling policy experiments. Keep pr
 | Requirement IR | Typed, validated IR and deterministic fast-path compatibility | None |
 | Roblox property projection | Verified export properties projected and reinspected, with explicit unsupported cases | Existing export fingerprint |
 | Asset inspection | Compact, optional geometry/material/rig/structure metadata and real Blender assertions | None |
-| Integration (production lead) | Review all work, run full tests, wire the bounded LLM fallback and first non-black end-to-end case | First three workstreams |
+| Integration (production lead) | Review shared contracts, build and test a bounded OpenCode compiler adapter, run full tests, and define the prompt-coverage gate before any live fallback | First three workstreams |
 
 ## Decision points
 
 - For each new requirement type, specify a verifier and a capability before enabling execution.
+- Before enabling an LLM fallback in a Job, require coverage evidence mapping each requested action to requirement IDs or an explicit unresolved reason. Any unsupported, ambiguous, or uncovered action blocks execution. Evaluate models on coverage and false-pass rate as well as schema validity, latency, and token cost; include negation, target scope, and combined-request holdouts.
+- Keep model identity and version in job evidence so results can be reproduced. Use the free Zen candidate first when it is still available and configured; never silently fall back to another model.
 - Use `PlaceTest` for future disposable Studio runs only after fresh live discovery. Keep upload count and cost visible.
 - Do not merge PR #1 to `main` without explicit user approval.
+
