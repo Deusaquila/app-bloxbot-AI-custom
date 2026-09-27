@@ -44,3 +44,20 @@ PLAN.md
 # OS metadata
 .DS_Store
 Thumbs.db
+
+# Generated Corpus databases and downloaded evaluation assets
+*.sqlite
+*.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+.corpus/
+corpus-data/
+corpus/raw/
+corpus/derived/
+evaluation/raw/
+evaluation/*.db
+evaluation/*.db-wal
+evaluation/*.db-shm
+.local-evaluation/
