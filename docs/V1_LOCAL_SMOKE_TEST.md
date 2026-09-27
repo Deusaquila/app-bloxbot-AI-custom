@@ -43,6 +43,6 @@ The real acceptance has passed through both the CLI application-service path and
 the Electron buttons. The desktop Job `e490280e-d499-4491-a783-9812da7a2db7` completed
 on 2026-09-27 and remained visible after restarting the app. Its workspace is
 `C:\Users\JM\BloxBot`; see V1_INTEGRATION.md for measured results and separate
-legacy Explorer/layout issues found during the smoke test.
+Explorer/layout fixes and their live verification.
 
 Keep PR #1 in draft and do not merge into main.

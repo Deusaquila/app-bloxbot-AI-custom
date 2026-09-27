@@ -147,6 +147,7 @@ describe("GeneratedProgramRuntime", () => {
     );
     expect(callTool).toHaveBeenCalledWith("search_game_tree", {
       studio_id: "studio-123",
+      datamodel_type: "Edit",
       max_depth: 10,
       head_limit: 100_000,
     });

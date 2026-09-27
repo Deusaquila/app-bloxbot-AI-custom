@@ -30,4 +30,13 @@ describe("compileKnownV1Task", () => {
   it("returns undefined for tasks that require reasoning", () => {
     expect(compileKnownV1Task("Gör stoet till en hingst.", asset)).toBeUndefined();
   });
+
+  it.each([
+    "Gör den inte svart och dubbelt så stor.",
+    "Gör bara sadeln svart.",
+    "Gör den svart, men gör den inte större.",
+    "Gör den svart, dubbelt så stor och vrid 90 grader.",
+  ])("does not guess at unsupported negated or scoped prompt: %s", (prompt) => {
+    expect(compileKnownV1Task(prompt, asset)).toBeUndefined();
+  });
 });

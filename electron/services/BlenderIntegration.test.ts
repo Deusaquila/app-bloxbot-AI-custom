@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Layer, ManagedRuntime } from "effect";
@@ -16,7 +16,9 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 describe.skipIf(!executable)("Real Blender round trip", () => {
-  it("preserves color and multi-root scaling through derived scenes and exported FBX", async () => {
+  it.each(["multi-root", "rotated-multi-material", "centimeter-units"])(
+    "preserves black material and absolute 2x scale through the %s FBX fixture",
+    async (fixture) => {
     const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-"));
     dirs.push(root);
     const source = join(root, "source.fbx");
@@ -24,7 +26,7 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
     await Effect.runPromise(
       runBlenderScript(
         { executable: executable! },
-        { script, scriptPath: join(root, "fixture.py"), args: [source] },
+        { script, scriptPath: join(root, "fixture.py"), args: [fixture, source] },
       ),
     );
     const services = Layer.merge(ArtifactServiceLive, makeWorkspaceServiceLayer(root));
@@ -56,7 +58,8 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
       const invoke = (name: string, input: unknown = {}) =>
         blender.runPromise(Effect.flatMap(BlenderService, (b) => b.executeCapability(name, input)));
       const initial = (await invoke("asset.inspect")).value as AssetFingerprint;
-      expect(initial.triangles).toBe(24);
+      expect(initial.meshes).toBeGreaterThanOrEqual(2);
+      expect(initial.triangles).toBeGreaterThan(0);
       await Promise.all([
         invoke("material.set_base_color", { expected: [0, 0, 0, 1] }),
         invoke("transform.scale_uniform", { expected: 2 }),
@@ -69,10 +72,6 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
       await invoke("transform.scale_uniform", { expected: 2 });
       const retry = (await invoke("asset.inspect")).value as AssetFingerprint;
       expect(matchesScale(initial.dimensions, retry.dimensions, 2)).toBe(true);
-      await invoke("asset.export_fbx");
-      expect(
-        (await invoke("asset.verify_material", { expected: [0, 0, 0, 1] })).value,
-      ).toMatchObject({ valid: true });
       const output = (await invoke("asset.export_fbx")).value as { artifact: typeof artifact };
       const verify = ManagedRuntime.make(
         makeBlenderServiceLayer({
@@ -102,5 +101,38 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
       await blender.dispose();
       await runtime.dispose();
     }
-  }, 180_000);
+    },
+    180_000,
+  );
+
+  it("rejects an FBX with no mesh before it can be treated as an asset", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-empty-"));
+    dirs.push(root);
+    const source = join(root, "empty.fbx");
+    const fixtureScript = await readFile("electron/blender/create_test_fbx.py", "utf8");
+    const pipelineScript = await readFile("electron/blender/v1_pipeline.py", "utf8");
+    await Effect.runPromise(
+      runBlenderScript(
+        { executable: executable! },
+        { script: fixtureScript, scriptPath: join(root, "fixture.py"), args: ["empty", source] },
+      ),
+    );
+    const request = join(root, "inspect.request.json");
+    const response = join(root, "inspect.response.json");
+    await writeFile(
+      request,
+      JSON.stringify({ assetId: "empty", assetPath: source, capability: "asset.inspect", input: {} }),
+    );
+
+    const failure = await Effect.runPromise(
+      Effect.flip(
+        runBlenderScript(
+          { executable: executable! },
+          { script: pipelineScript, scriptPath: join(root, "pipeline.py"), args: [request, response] },
+        ),
+      ),
+    );
+    expect(failure).toMatchObject({ _tag: "BlenderProcessError", exitCode: 1 });
+    expect(failure.stderr).toContain("Asset contains no meshes");
+  }, 60_000);
 });

@@ -282,7 +282,7 @@ This checklist describes pre-integration concerns and is historical, not a list 
 
 ## Post-V1 direction - do not implement prematurely
 
-The current V1 capabilities now have one deterministic, versioned procedure each, and desktop acceptance has passed. A versioned local observation separates transfer reliability from prompt compliance. Next, resolve the documented legacy Explorer/layout defects and expand the frozen asset/prompt matrix with generated fixtures and explicit failure cases. Keep the Procedure Registry explicit and deterministic before introducing any Policy Registry or AI fallback. Do not infer readiness for learning, experiments, or multimodal scoring from one successful horse case.
+The current V1 capabilities now have one deterministic, versioned procedure each, and desktop acceptance has passed. A versioned local observation separates transfer reliability from prompt compliance. The live-contract Explorer request and panel layout defects have been fixed and verified; local generated tests now cover multi-root geometry, rotated hierarchy, multi-materials, centimeter units and empty-FBX rejection, while compiler tests reject unsupported negation, scope and conflicting extras. Next, extend the fixed prompt/asset holdout set and add targeted adapter failure fixtures before proposing a Policy Registry or any AI fallback. Do not infer readiness for learning, experiments, or multimodal scoring from one successful horse case.
 
 Later architecture should support:
 - Procedure Registry: how capabilities are implemented

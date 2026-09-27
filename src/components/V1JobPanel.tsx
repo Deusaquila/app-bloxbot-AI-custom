@@ -55,7 +55,7 @@ export default function V1JobPanel() {
       {open && (
         <section
           aria-label="V1 asset job"
-          className="absolute right-0 top-9 z-50 w-96 max-w-[90vw] space-y-3 rounded-lg border bg-card p-4 shadow-lg"
+          className="fixed right-4 top-12 z-[100] max-h-[calc(100vh-4rem)] w-96 max-w-[calc(100vw-2rem)] space-y-3 overflow-y-auto rounded-lg border bg-card p-4 shadow-lg"
         >
           <h2 className="font-semibold">Make an asset black and twice as large</h2>
           <p>Target: {studio?.selected?.label ?? "Select a Studio first"}</p>

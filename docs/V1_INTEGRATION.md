@@ -176,10 +176,37 @@ suite); `pnpm test:blender` (one real integration test passed with the PATH-sele
 Blender 5.2.2 LTS); and `pnpm check:v1-environment` passed. The desktop horse run
 and its independent round-trip used Blender 4.2.3 LTS as recorded above.
 
-Remaining UI observations: the legacy Explorer returned an instance-tree error,
-and the Asset job popover was clipped with Explorer open in a narrow window.
-Closing Explorer made the form fully usable. These are separate follow-up defects;
-the V1 Job adapter's explicit-instance import and inspection succeeded. The viewport
-capture includes earlier diagnostic models in the disposable place and is not a
-standardized visual-quality evaluation. This run proves the locked objective
-scenario, not arbitrary prompt support or autonomous learning.
+The desktop acceptance initially exposed Explorer and narrow-layout defects. They
+were fixed and verified in the next implementation slice below. The viewport capture
+includes earlier diagnostic models in the disposable place and is not a standardized
+visual-quality evaluation. This run proves the locked objective scenario, not
+arbitrary prompt support or autonomous learning.
+
+## Explorer and evaluation matrix follow-up on 2026-09-27
+
+Live tools/list showed that `search_game_tree` requires both `studio_id` and
+`datamodel_type` (`Edit`, `Client` or `Server`). The built-in Explorer program sent
+the selected Studio ID but omitted the required datamodel. It now sends the
+contract's `Edit` value. With the current live Studio selected as Place1, the actual
+Explorer loaded and displayed Workspace, its imported models and the other default
+services. No asset was uploaded or changed during this verification.
+
+The Asset job panel now uses a viewport-fixed, bounded card, so it remains fully
+visible with Explorer open in the 906-pixel-wide app window. The asset form remains
+available and its controls do not overlap the Explorer content area.
+
+The real Blender integration suite now generates four disposable cases: two root
+meshes, rotated parents with multiple source materials, metric centimeter units and
+an empty FBX. The first three passed black-material and absolute-2x checks through
+export and FBX reimport. The empty FBX was rejected by the real pipeline with a
+typed Blender process failure. Compiler tests confirm that negated, scoped,
+contradictory and extra-rotation prompts remain unsupported rather than being
+silently mapped to the known procedure.
+
+Validation on Node 22.23.3, pnpm 12.6.0 and Blender 5.2.2 LTS: `pnpm typecheck`,
+`pnpm build`, `pnpm check:v1-environment`, and `pnpm test` passed (204 application,
+48 control and 8 release tests; four external Blender cases are skipped by the
+ordinary suite). `pnpm test:blender` separately ran and passed all four cases with
+the installed Blender 5.2.2 LTS. The live Explorer view was verified through the
+actual application and broker. No new Open Cloud or Studio asset import was part of
+this follow-up.
