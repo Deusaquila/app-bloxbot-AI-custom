@@ -114,10 +114,10 @@ describe("GeneratedProgramRuntime", () => {
         {
           type: "text",
           text: JSON.stringify([
-            { fullPath: "Place1", name: "Place1", className: "DataModel" },
+            { fullPath: "PlaceTest", name: "PlaceTest", className: "DataModel" },
             {
               fullPath: "Workspace",
-              parentName: "Place1",
+              parentName: "PlaceTest",
               name: "Workspace",
               className: "Workspace",
             },
@@ -147,8 +147,28 @@ describe("GeneratedProgramRuntime", () => {
     );
     expect(callTool).toHaveBeenCalledWith("search_game_tree", {
       studio_id: "studio-123",
+      datamodel_type: "Edit",
       max_depth: 10,
       head_limit: 100_000,
+    });
+  });
+
+  it("fails Explorer collection when Studio reports a tool error instead of an empty tree", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "search_game_tree rejected its arguments" }],
+    });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+
+    await expect(
+      Effect.runPromise(
+        Effect.flip(runtime.invoke({ artifact, input: { studioId: "studio-123" } })),
+      ),
+    ).resolves.toMatchObject({
+      _tag: "GeneratedProgramRuntimeError",
+      phase: "runtime",
+      regenerate: true,
     });
   });
 

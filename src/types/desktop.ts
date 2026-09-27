@@ -85,6 +85,13 @@ export const UpdateInfoSchema = Schema.mutable(
 export type UpdateInfo = typeof UpdateInfoSchema.Type;
 
 export interface DesktopApi {
+  pickV1Asset?(): Promise<string | null>;
+  runV1Job?(input: {
+    sourcePath: string;
+    studioId: string;
+    creatorId: string;
+  }): Promise<import("./job").Job>;
+  listV1Jobs?(): Promise<readonly import("./job").Job[]>;
   compileExplorerProgram(program: ExplorerProgramEnvelope): Promise<GeneratedProgramArtifact>;
   invokeExplorerProgram(
     artifact: GeneratedProgramArtifact,

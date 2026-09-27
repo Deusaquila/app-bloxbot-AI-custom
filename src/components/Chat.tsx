@@ -1,3 +1,4 @@
+import V1JobPanel from "@/components/V1JobPanel";
 import { Boxes, Play } from "lucide-react";
 import posthog from "posthog-js/dist/module.full.no-external.js";
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
@@ -217,6 +218,7 @@ function Chat() {
               </div>
               <div className="ml-2 flex min-w-0 items-center justify-end gap-1.5">
                 <StudioTargetPicker />
+                <V1JobPanel />
                 {hasStudioTarget ? (
                   <div className="flex shrink-0 items-center gap-1.5">
                     <button

@@ -38,6 +38,7 @@ export interface StudioMcpUpstream {
 
 export interface StudioMcpBrokerService {
   readonly info: StudioMcpBrokerInfo;
+  readonly listTools: Effect.Effect<{ tools: Tool[] }, StudioMcpBrokerError>;
   readonly callTool: (
     name: string,
     args: Record<string, unknown>,
@@ -50,10 +51,7 @@ export class StudioMcpBroker extends Context.Tag("@bloxbot/StudioMcpBroker")<
 >() {}
 
 class SdkStudioMcpUpstream implements StudioMcpUpstream {
-  private readonly client = new Client(
-    { name: "BloxBot", version: "1.0.0" },
-    { capabilities: {} },
-  );
+  private readonly client = new Client({ name: "BloxBot", version: "1.0.0" }, { capabilities: {} });
 
   private constructor() {}
 
@@ -133,14 +131,9 @@ interface BrokerResource extends StudioMcpBrokerService {
   close(): Promise<void>;
 }
 
-export async function startStudioMcpBroker(
-  upstream: StudioMcpUpstream,
-): Promise<BrokerResource> {
+export async function startStudioMcpBroker(upstream: StudioMcpUpstream): Promise<BrokerResource> {
   process.stderr.write("[studio-mcp] broker starting\n");
-  const sessions = new Map<
-    string,
-    { server: Server; transport: StreamableHTTPServerTransport }
-  >();
+  const sessions = new Map<string, { server: Server; transport: StreamableHTTPServerTransport }>();
   function makeSession() {
     const server = new Server(
       { name: "bloxbot-studio-broker", version: "1.0.0" },
@@ -195,6 +188,11 @@ export async function startStudioMcpBroker(
   process.stderr.write(`[studio-mcp] broker listening on ${LOOPBACK}:${address.port}\n`);
   return {
     info: { url: `http://${LOOPBACK}:${address.port}/mcp` },
+    listTools: Effect.tryPromise({
+      try: () => upstream.listTools(),
+      catch: (cause) =>
+        new StudioMcpBrokerError({ message: "Studio contract discovery failed", cause }),
+    }),
     callTool: (name, args) =>
       Effect.tryPromise({
         try: () => upstream.callTool(name, args),

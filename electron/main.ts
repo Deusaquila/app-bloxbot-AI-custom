@@ -1,8 +1,13 @@
+import { existsSync } from "node:fs";
+import blenderScript from "./blender/v1_pipeline.py?raw";
+import { makeV1Runtime } from "./services/V1Runtime";
+import { runV1Job } from "./services/V1JobRunner";
+import { JobService } from "./services/JobService";
 import { rename, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { app, BrowserWindow, ipcMain, Menu, shell } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, shell, dialog } from "electron";
 import { autoUpdater } from "electron-updater";
 import { Data, Effect, Layer, ManagedRuntime, Schema } from "effect";
 
@@ -167,7 +172,35 @@ function patchConfig(input: unknown) {
 
 const runMain = <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromise(effect);
 
+let v1Runtime: ReturnType<typeof makeV1Runtime> | undefined;
+let v1Running = false;
+let v1Abort: AbortController | undefined;
+const getV1Runtime = () => v1Runtime ??= makeV1Runtime(join(app.getPath("home"), "BloxBot"));
 const registerIpcHandlers = Effect.sync(() => {
+  ipcMain.handle(channels.pickV1Asset, async () => {
+    const result = await dialog.showOpenDialog({ properties: ["openFile"], filters: [{ name: "FBX asset", extensions: ["fbx"] }] });
+    return result.canceled ? null : result.filePaths[0] ?? null;
+  });
+  ipcMain.handle(channels.listV1Jobs, () => getV1Runtime().runPromise(Effect.flatMap(JobService, service => service.list)));
+  ipcMain.handle(channels.runV1Job, async (_event, raw: unknown) => {
+    if (v1Running) throw new Error("An asset job is already running");
+    const input = Schema.decodeUnknownSync(Schema.Struct({ sourcePath: Schema.String.pipe(Schema.minLength(1)),
+      studioId: Schema.String.pipe(Schema.minLength(1)), creatorId: Schema.String.pipe(Schema.pattern(/^[1-9][0-9]*$/)) }))(raw);
+    if (!input.sourcePath.toLowerCase().endsWith(".fbx")) throw new Error("Choose an FBX asset");
+    const blenderExecutable = [process.env.BLOXBOT_BLENDER,
+      "C:/Program Files/Blender Foundation/Blender 4.2/blender.exe", "C:/Program Files/Blender Foundation/Blender 5.2/blender.exe",
+      "/Applications/Blender.app/Contents/MacOS/Blender", "/usr/bin/blender"].find(path => path && existsSync(path));
+    if (!blenderExecutable) throw new Error("Blender was not found. Set BLOXBOT_BLENDER to its executable path.");
+    v1Running = true;
+    v1Abort = new AbortController();
+    try {
+      return await getV1Runtime().runPromise(runV1Job({ ...input, prompt: "Gör den svart och dubbelt så stor." }, {
+        blenderExecutable, blenderScript, openCloud: { creator: { type: "user", id: input.creatorId },
+          credentialPath: join(app.getPath("home"), ".config", "bloxbot", "roblox-open-cloud-api-key") },
+      }), { signal: v1Abort.signal });
+    } catch { throw new Error("Asset job could not finish. Inspect its persisted status before retrying."); }
+    finally { v1Running = false; v1Abort = undefined; }
+  });
   ipcMain.handle(channels.compileExplorerProgram, (_event, input: unknown) =>
     openCodeRuntime.runPromise(
       Effect.gen(function* () {
@@ -415,7 +448,7 @@ const registerAppLifecycle = Effect.sync(() => {
     event.preventDefault();
     Effect.runFork(
       Effect.tryPromise({
-        try: () => openCodeRuntime.dispose(),
+        try: async () => { v1Abort?.abort(); await v1Runtime?.dispose(); await openCodeRuntime.dispose(); },
         catch: (cause) =>
           new DesktopMainError({ message: "Failed to stop the OpenCode runtime", cause }),
       }).pipe(

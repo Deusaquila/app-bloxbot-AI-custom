@@ -4,6 +4,9 @@ import type { AppConfig, DesktopApi, OpenCodeStartupProgress } from "../src/type
 import { channels } from "./channels";
 
 const api: DesktopApi = {
+  pickV1Asset: () => ipcRenderer.invoke(channels.pickV1Asset),
+  runV1Job: input => ipcRenderer.invoke(channels.runV1Job, input),
+  listV1Jobs: () => ipcRenderer.invoke(channels.listV1Jobs),
   compileExplorerProgram: (program) =>
     ipcRenderer.invoke(channels.compileExplorerProgram, program),
   getOpenCodeInfo: () => ipcRenderer.invoke(channels.getOpenCodeInfo),

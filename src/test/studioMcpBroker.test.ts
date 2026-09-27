@@ -8,9 +8,9 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Layer } from "effect";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { StudioMcpUpstream } from "../../electron/services/StudioMcpBroker";
 import {
   makeStudioMcpBrokerLayer,
+  type StudioMcpUpstream,
   startStudioMcpBroker,
 } from "../../electron/services/StudioMcpBroker";
 
@@ -64,6 +64,47 @@ describe("Studio MCP broker", () => {
       client.callTool({ name: "inspect_place", arguments: { depth: 3 } }),
     ).resolves.toMatchObject({ content: [{ type: "text", text: "ok" }] });
     expect(upstream.callTool).toHaveBeenCalledWith("inspect_place", { depth: 3 });
+  });
+
+  it("surfaces updated upstream schemas instead of retaining a stale tool contract", async () => {
+    let currentTools = tools;
+    const upstream = fakeUpstream({
+      listTools: vi.fn(async () => ({ tools: currentTools })),
+    });
+    const broker = await startStudioMcpBroker(upstream);
+    cleanups.push(() => broker.close());
+    const client = await connect(broker.info);
+
+    await expect(client.listTools()).resolves.toEqual({ tools });
+    currentTools = [
+      {
+        ...tools[0],
+        inputSchema: {
+          type: "object",
+          properties: { studio_id: { type: "string" }, datamodel_type: { type: "string" } },
+          required: ["studio_id", "datamodel_type"],
+        },
+      },
+    ];
+
+    await expect(client.listTools()).resolves.toEqual({ tools: currentTools });
+  });
+
+  it("turns an upstream Studio disconnect into a typed broker failure", async () => {
+    const upstream = fakeUpstream({
+      callTool: vi.fn().mockRejectedValue(new Error("Studio pipe closed")),
+    });
+    const broker = await startStudioMcpBroker(upstream);
+    cleanups.push(() => broker.close());
+
+    const result = await Effect.runPromise(
+      Effect.either(broker.callTool("inspect_place", { studio_id: "selected-studio" })),
+    );
+
+    expect(result).toMatchObject({
+      _tag: "Left",
+      left: { _tag: "StudioMcpBrokerError" },
+    });
   });
 
   it("keeps concurrent clients stateless by forwarding each explicit studio_id", async () => {
