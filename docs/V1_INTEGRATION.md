@@ -113,3 +113,17 @@ superseded by this implementation. No main merge, reset or force push was perfor
 See [Windows setup](WINDOWS_V1_ENVIRONMENT.md) and [smoke test](V1_LOCAL_SMOKE_TEST.md).
 References: [Roblox Assets API](https://create.roblox.com/docs/cloud/guides/usage-assets),
 [Roblox Blender export settings](https://create.roblox.com/docs/art/characters/creating/blender-configurations).
+
+## Follow-up on 2026-09-27
+
+The branch's Electron app started and exposed its current UI. Live contract discovery
+again returned 28 tools with the same contract hash and two Studio instances; the
+disposable `Place1` still had ID `7485867d-33df-4782-9476-ac122e0765bf`.
+Automated Windows input to the app was denied (`GetCursorPos`, access denied), so
+no button-driven upload or Gate 2 run occurred in this follow-up. A focused React
+test now exercises the asset-job button through the desktop API with an explicit
+Studio ID, but that test uses a fake API and is not a live desktop acceptance.
+
+The first versioned, local benchmark observation was derived from the existing
+completed horse Job without re-running an upload. It records transfer milestones
+and mandatory prompt requirements separately. See [ASSET_EVALUATION_MATRIX.md](ASSET_EVALUATION_MATRIX.md).
