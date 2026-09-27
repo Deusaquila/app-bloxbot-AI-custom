@@ -1,5 +1,9 @@
 # V1 Windows integration acceptance
 
+## Current disposable Studio target
+
+The requested forward-looking local test place is PlaceTest at C:\Users\JM\Documents\PlaceTest.rbxl, saved on 2026-09-27. Current live Studio MCP discovery sees an unnamed instance reporting Place is not open and an instance named ny.rbxl in Edit mode; a read-only inspection confirms that the responding instance is ny.rbxl, not PlaceTest. The Studio MCP connection and its Luau call path are responding, but PlaceTest is not yet available through MCP. Do not import assets or claim Studio verification or Gate 2 until PlaceTest appears in live discovery and its explicit studio_id responds in Edit mode.
+
 The locked horse acceptance scenario passed on 2026-09-26 at 17:39 UTC on the shared
 Windows 11 host. Prompt: `Gör den svart och dubbelt så stor.`
 

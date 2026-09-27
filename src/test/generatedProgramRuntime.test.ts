@@ -114,10 +114,10 @@ describe("GeneratedProgramRuntime", () => {
         {
           type: "text",
           text: JSON.stringify([
-            { fullPath: "Place1", name: "Place1", className: "DataModel" },
+            { fullPath: "PlaceTest", name: "PlaceTest", className: "DataModel" },
             {
               fullPath: "Workspace",
-              parentName: "Place1",
+              parentName: "PlaceTest",
               name: "Workspace",
               className: "Workspace",
             },

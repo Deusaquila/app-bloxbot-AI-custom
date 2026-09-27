@@ -7,7 +7,7 @@ const controls = vi.hoisted(() => ({
   pickV1Asset: vi.fn(),
   runV1Job: vi.fn(),
   listV1Jobs: vi.fn(),
-  selected: { key: "explicit-studio-id", label: "Disposable Place1" },
+  selected: { key: "explicit-studio-id", label: "Disposable PlaceTest" },
 }));
 
 vi.mock("@/providers/StudioTargetProvider", () => ({
@@ -49,7 +49,7 @@ describe("V1 desktop asset job panel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Asset job" }));
     const run = screen.getByRole("button", { name: "Run asset job" });
     expect(run).toBeDisabled();
-    expect(screen.getByText(/Target: Disposable Place1/)).toBeVisible();
+    expect(screen.getByText(/Target: Disposable PlaceTest/)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Choose FBX" }));
     await screen.findByText("C:\\fixtures\\horse.fbx");
     fireEvent.change(screen.getByRole("textbox", { name: "Roblox creator user ID" }), {
