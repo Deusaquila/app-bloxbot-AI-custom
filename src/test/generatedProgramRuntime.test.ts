@@ -153,6 +153,25 @@ describe("GeneratedProgramRuntime", () => {
     });
   });
 
+  it("fails Explorer collection when Studio reports a tool error instead of an empty tree", async () => {
+    const callTool = vi.fn().mockResolvedValue({
+      isError: true,
+      content: [{ type: "text", text: "search_game_tree rejected its arguments" }],
+    });
+    const runtime = startGeneratedProgramRuntime(callTool);
+    const artifact = await Effect.runPromise(runtime.compile(BUILTIN_EXPLORER_PROGRAM));
+
+    await expect(
+      Effect.runPromise(
+        Effect.flip(runtime.invoke({ artifact, input: { studioId: "studio-123" } })),
+      ),
+    ).resolves.toMatchObject({
+      _tag: "GeneratedProgramRuntimeError",
+      phase: "runtime",
+      regenerate: true,
+    });
+  });
+
   it("discovers Place IDs and verifies targets without mutating active Studio state", async () => {
     const callTool = vi.fn().mockResolvedValue({
       content: [

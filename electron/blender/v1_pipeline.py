@@ -1,5 +1,6 @@
 """Deterministic V1 adapter. Every mutation writes a new scene; input is immutable."""
 import bpy
+import bmesh
 import json
 import math
 import os
@@ -31,11 +32,37 @@ def color(material):
     return list(material.diffuse_color)
 
 
+def topology():
+    edge_count = 0
+    manifold_edges = 0
+    loose_geometry = False
+    for obj in meshes():
+        data = bmesh.new()
+        data.from_mesh(obj.data)
+        edge_count += len(data.edges)
+        manifold_edges += sum(1 for edge in data.edges if edge.is_manifold)
+        loose_geometry = loose_geometry or any(not vertex.link_edges for vertex in data.verts)
+        loose_geometry = loose_geometry or any(not edge.link_faces for edge in data.edges)
+        data.free()
+    return {
+        "manifoldRatio": manifold_edges / edge_count if edge_count else 1.0,
+        "looseGeometry": loose_geometry,
+    }
+
+
 def inspect():
     objects = meshes()
     for obj in objects:
         obj.data.calc_loop_triangles()
     materials = {m.name: m for obj in objects for m in obj.data.materials if m is not None}
+    mesh_topology = topology()
+    issues = []
+    if mesh_topology["manifoldRatio"] < 1.0:
+        issues.append({"code": "NON_MANIFOLD_EDGES", "severity": "WARNING",
+                       "message": "Some mesh edges do not have exactly two adjacent faces"})
+    if mesh_topology["looseGeometry"]:
+        issues.append({"code": "LOOSE_GEOMETRY", "severity": "WARNING",
+                       "message": "Mesh contains loose vertices or edges"})
     return {
         "assetId": request["assetId"], "format": "fbx",
         "objects": len(bpy.context.scene.objects), "meshes": len(objects),
@@ -47,7 +74,7 @@ def inspect():
         "transforms": {"scale": [1, 1, 1], "rotation": [0, 0, 0]},
         "rig": {"exists": any(obj.type == "ARMATURE" for obj in bpy.context.scene.objects),
                 "bones": sum(len(obj.data.bones) for obj in bpy.context.scene.objects if obj.type == "ARMATURE")},
-        "topology": {}, "issues": [],
+        "topology": mesh_topology, "issues": issues,
     }
 
 

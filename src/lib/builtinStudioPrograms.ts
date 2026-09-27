@@ -3,6 +3,9 @@ import type { StudioTargetProgramEnvelopes } from "@/types/studioTarget";
 
 const NORMALIZE_MCP_RESULT = `
 function normalizeMcpResult(result: unknown): any {
+  if (result && typeof result === "object" && !Array.isArray(result) && (result as any).isError === true) {
+    throw new Error("Studio MCP tool returned an error");
+  }
   const content = result && typeof result === "object" && !Array.isArray(result)
     ? (result as any).content
     : result;

@@ -230,3 +230,29 @@ failure boundaries without a live upload or place mutation.
 Focused prompt and Studio adapter tests passed (14 tests), and `pnpm typecheck`
 passed. Live disconnect and contract-change cases remain planned; no autonomous
 learning or new Gate 2 claim is introduced.
+
+## Asset holdout and MCP boundary follow-up on 2026-09-27
+
+The generated Blender matrix now includes an image-textured material, a weighted
+one-bone armature, a mesh with a missing face, and loose geometry. The deterministic
+inspector records the share of manifold edges and whether mesh vertices or edges
+are loose. Those observations are warnings; this change does not decide that such
+assets are unusable. The real export/reimport test confirms the non-manifold ratio,
+the rig's bones, black material and 2x world dimensions where applicable. Skinning
+weights and animation are not yet verified.
+
+`pnpm test:blender` ran all eight fixture cases on installed Blender 5.2.2 LTS and
+passed. The textured input reached the pipeline with no flat base color and was
+replaced by the deterministic black material; the resulting FBX retained the
+expected objective color and dimensions. These tests are local Blender evidence,
+not Roblox importer or Studio evidence.
+
+The Explorer result normalizer now fails on MCP's explicit `isError` flag, so a
+failed tree query cannot be mistaken for a valid empty place. Broker tests exercise
+an upstream disconnect as a typed failure and confirm each `tools/list` call sees
+an updated upstream schema. The generated-program and broker test files currently
+pass 10 and 7 focused tests, respectively. No live Studio disconnect or contract
+change, Open Cloud upload, place mutation, or Gate 2 run occurred in this follow-up.
+The next validation step is to observe those MCP failures against the running
+selected Studio version, then extend local holdouts for transparency, animation and
+skinning, degenerate/high-complexity geometry, and FBX packaging edge cases.

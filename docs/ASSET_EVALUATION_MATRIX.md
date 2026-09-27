@@ -58,13 +58,19 @@ records without the user's explicit decision to share them.
 
 | Family | Initial fixture or probe | Required observation | Current status |
 | --- | --- | --- | --- |
-| Geometry | Single mesh; many meshes; disconnected objects; empty parents | Mesh and triangle counts, hierarchy, visible bounds before/after import | Two roots and empty FBX locally verified; other cases planned |
-| Materials | Uniform, multiple materials, texture overlays, transparency | Blender material representation, exported FBX, exact Studio part properties and appearance | Uniform black live verified; multiple source materials locally verified; texture/transparency cases planned |
+| Geometry | Single mesh; many meshes; disconnected objects; empty parents | Mesh and triangle counts, hierarchy, visible bounds before/after import | Single and multiple meshes plus empty FBX locally verified; other cases planned |
+| Materials | Uniform, multiple materials, texture overlays, transparency | Blender material representation, exported FBX, exact Studio part properties and appearance | Uniform black live verified; multiple source materials and a generated image-texture source locally round-tripped to black; transparency remains planned |
 | Transforms | Unit scales, rotated roots, non-origin pivots, very small/large bounds | World-space baseline, FBX reimport, selected Studio ratio | Horse 2× live verified; rotated parent and centimeter scene locally verified |
-| Rigging | Armature, skinning, animation, no rig | Inspect actual bones and importer behavior; mark unsupported cases explicitly | Planned |
-| Geometry quality | Non-manifold/loose geometry, degenerate faces, high complexity | Preflight issues and whether Roblox preserves usable parts | Empty geometry rejected locally; other quality cases planned |
+| Rigging | Armature, skinning, animation, no rig | Inspect actual bones and importer behavior; mark unsupported cases explicitly | A weighted one-bone armature fixture retained its rig through local FBX round trip; skin weights and animation are not yet asserted |
+| Geometry quality | Non-manifold/loose geometry, degenerate faces, high complexity | Preflight issues and whether Roblox preserves usable parts | Non-manifold edges and loose geometry are measured and emitted as warnings; the non-manifold ratio survived local FBX round trip. These warnings do not currently reject an asset |
 | Packaging | External textures, unusual names, Unicode/long paths, near upload size limit | Dependencies, artifact bytes/hash, typed failures | Basic FBX path verified; matrix planned |
-| Remote failures | API rejection, moderation, polling timeout, ambiguous POST, Studio disconnect/contract change | Receipt/operation provenance; no unsafe duplicate upload or false completion | Open Cloud API/poll/provenance cases and Studio preflight-before-upload guards covered locally; live disconnect/contract-change matrix planned |
+| Remote failures | API rejection, moderation, polling timeout, ambiguous POST, Studio disconnect/contract change | Receipt/operation provenance; no unsafe duplicate upload or false completion | Open Cloud API/poll/provenance cases and Studio preflight guards covered locally; broker tests cover upstream disconnect errors and refreshed tool schemas. Live Studio disconnect/contract-change observations remain planned |
+
+The current generated asset suite has eight real Blender cases on Blender 5.2.2
+LTS. The additional texture, rig and topology fixtures extend deterministic
+transfer screening; they do not establish Roblox importer behavior. Topology
+warnings are observations, not a rejection policy, until real transfer evidence
+shows which cases Roblox cannot use.
 
 Each family should include a known-good control and at least one deliberate
 failure. Use generated Blender fixtures for objective cases; add real user files

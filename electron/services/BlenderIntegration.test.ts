@@ -16,7 +16,15 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 describe.skipIf(!executable)("Real Blender round trip", () => {
-  it.each(["multi-root", "rotated-multi-material", "centimeter-units"])(
+  it.each([
+    "multi-root",
+    "rotated-multi-material",
+    "centimeter-units",
+    "textured-material",
+    "rigged",
+    "non-manifold",
+    "loose-geometry",
+  ])(
     "preserves black material and absolute 2x scale through the %s FBX fixture",
     async (fixture) => {
     const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-"));
@@ -58,8 +66,26 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
       const invoke = (name: string, input: unknown = {}) =>
         blender.runPromise(Effect.flatMap(BlenderService, (b) => b.executeCapability(name, input)));
       const initial = (await invoke("asset.inspect")).value as AssetFingerprint;
-      expect(initial.meshes).toBeGreaterThanOrEqual(2);
+      expect(initial.meshes).toBeGreaterThan(0);
+      if (["multi-root", "rotated-multi-material", "centimeter-units"].includes(fixture)) {
+        expect(initial.meshes).toBeGreaterThanOrEqual(2);
+      }
       expect(initial.triangles).toBeGreaterThan(0);
+      if (fixture === "textured-material") {
+        expect(initial.materials.some((m) => m.baseColor === undefined)).toBe(true);
+      }
+      if (fixture === "rigged") {
+        expect(initial.rig.exists).toBe(true);
+        expect(initial.rig.bones).toBeGreaterThan(0);
+      }
+      if (fixture === "non-manifold") {
+        expect(initial.topology.manifoldRatio).toBeLessThan(1);
+        expect(initial.issues.map((issue) => issue.code)).toContain("NON_MANIFOLD_EDGES");
+      }
+      if (fixture === "loose-geometry") {
+        expect(initial.topology.looseGeometry).toBe(true);
+        expect(initial.issues.map((issue) => issue.code)).toContain("LOOSE_GEOMETRY");
+      }
       await Promise.all([
         invoke("material.set_base_color", { expected: [0, 0, 0, 1] }),
         invoke("transform.scale_uniform", { expected: 2 }),
@@ -87,6 +113,13 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
           Effect.flatMap(BlenderService, (b) => b.inspectAsset("export", output.artifact)),
         );
         expect(matchesScale(initial.dimensions, roundtrip.dimensions, 2)).toBe(true);
+        if (fixture === "rigged") {
+          expect(roundtrip.rig.exists).toBe(true);
+          expect(roundtrip.rig.bones).toBeGreaterThan(0);
+        }
+        if (fixture === "non-manifold") {
+          expect(roundtrip.topology.manifoldRatio).toBeLessThan(1);
+        }
         expect(
           roundtrip.materials.every((m) =>
             m.baseColor?.every((v, i) => Math.abs(v - [0, 0, 0, 1][i]) < 1e-5),
