@@ -4,7 +4,14 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { Effect, Layer } from "effect";
 import { makeV1Runtime } from "./V1Runtime";
-import { runV1Job } from "./V1JobRunner";
+import {
+  evaluateObjectiveRequirement,
+  isLockedV1Task,
+  matchesColor,
+  matchesScale,
+  runV1Job,
+} from "./V1JobRunner";
+import { compileKnownV1Task } from "../control/TaskCompiler";
 import { hasCompletionEvidence } from "../control/completionEvidence";
 import { JobService } from "./JobService";
 import { StudioMcpBroker } from "./StudioMcpBroker";
@@ -50,7 +57,7 @@ vi.mock("./BlenderServiceLive", async () => {
                 capability === "asset.inspect"
                   ? initial
                   : capability === "asset.verify_material"
-                    ? { valid: !controls.badMaterial }
+                    ? { valid: !controls.badMaterial, colors: [[0, 0, 0, 1]] }
                     : capability === "asset.verify_dimensions"
                       ? { dimensions: { x: 2, y: 4, z: 6 } }
                       : capability === "asset.export_fbx"
@@ -131,6 +138,89 @@ const options = {
   blenderScript: "fake",
   openCloud: { credentialPath: "unused", creator: { type: "user" as const, id: "42" } },
 };
+const baselineRoblox = {
+  objects: 1,
+  materials: 1,
+  hierarchyValid: true,
+  texturedParts: 0,
+  colors: [[0.2, 0.4, 0.6, 1]],
+  dimensions: { x: 1, y: 2, z: 3 },
+};
+
+describe("requirement-driven objective evidence", () => {
+  it("matches arbitrary normalized material colors while rejecting texture-covered colors", () => {
+    expect(matchesColor(baselineRoblox, [0.2, 0.4, 0.6, 1])).toBe(true);
+    expect(matchesColor({ ...baselineRoblox, texturedParts: 1 }, [0.2, 0.4, 0.6, 1])).toBe(false);
+    expect(matchesColor(baselineRoblox, [0.2, 0.4, 0.6])).toBe(false);
+  });
+
+  it("checks relative size using the typed expected factor and tolerance", () => {
+    expect(matchesScale(baselineRoblox.dimensions, { x: 3, y: 6, z: 9 }, 3, 0.02)).toBe(true);
+    expect(matchesScale(baselineRoblox.dimensions, { x: 2, y: 4, z: 6 }, 3, 0.02)).toBe(false);
+    expect(matchesScale(baselineRoblox.dimensions, { x: 3, y: 6, z: 9 }, 3, -1)).toBe(false);
+  });
+
+  it("evaluates typed color and size specs without embedding horse acceptance values", () => {
+    const colorResult = evaluateObjectiveRequirement(
+      { requirementId: "R_color", method: "material_property", expected: [0.2, 0.4, 0.6, 1] },
+      baselineRoblox,
+      baselineRoblox,
+    );
+    expect(colorResult).toEqual({ passed: true, observed: [[0.2, 0.4, 0.6, 1]] });
+
+    const sizeResult = evaluateObjectiveRequirement(
+      {
+        requirementId: "R_size",
+        method: "relative_bounding_box",
+        expected: 3,
+        tolerance: 0.02,
+      },
+      baselineRoblox,
+      { ...baselineRoblox, dimensions: { x: 3, y: 6, z: 9 } },
+    );
+    expect(sizeResult).toEqual({ passed: true, observed: [3, 3, 3] });
+  });
+
+  it("rejects objective methods the current runner cannot verify", () => {
+    expect(
+      evaluateObjectiveRequirement(
+        { requirementId: "R_unknown", method: "structure_property", expected: true },
+        baselineRoblox,
+        baselineRoblox,
+      ),
+    ).toEqual({ passed: false, observed: null });
+  });
+
+  it("keeps the live V1 execution contract locked to black and 2x", () => {
+    const compiled = compileKnownV1Task(
+      "Gör den svart och dubbelt så stor.",
+      {
+        assetId: "asset",
+        format: "fbx",
+        objects: 1,
+        meshes: 1,
+        vertices: 8,
+        triangles: 12,
+        materials: [],
+        dimensions: baselineRoblox.dimensions,
+        transforms: { scale: [1, 1, 1], rotation: [0, 0, 0] },
+        rig: { exists: false },
+        topology: {},
+        issues: [],
+      },
+    );
+    expect(compiled && isLockedV1Task(compiled)).toBe(true);
+    expect(compiled && isLockedV1Task({
+      ...compiled,
+      requirements: compiled.requirements.map((requirement) =>
+        requirement.type === "geometry.relative_size"
+          ? { ...requirement, expected: 3 }
+          : requirement,
+      ),
+    })).toBe(false);
+  });
+});
+
 describe("V1 orchestration (adapter-boundary fakes, not Gate 2 proof)", () => {
   it("completes only after both gates and restores results, hashes, lineage and evidence", async () => {
     const { root, source } = await fixture();
@@ -240,6 +330,23 @@ describe("V1 orchestration (adapter-boundary fakes, not Gate 2 proof)", () => {
         ),
       );
       expect(job.state).toBe("FAILED");
+      expect(controls.imports).toBe(0);
+    } finally {
+      await runtime.dispose();
+    }
+  });
+  it("fails closed on prompts outside the locked V1 task", async () => {
+    const { root, source } = await fixture();
+    const runtime = makeV1Runtime(root, broker);
+    try {
+      const job = await runtime.runPromise(
+        runV1Job(
+          { sourcePath: source, studioId: "selected", prompt: "Make the asset blue and 3x larger" },
+          options,
+        ),
+      );
+      expect(job.state).toBe("FAILED");
+      expect(job.executionPlan).toBeUndefined();
       expect(controls.imports).toBe(0);
     } finally {
       await runtime.dispose();

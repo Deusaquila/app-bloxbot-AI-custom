@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Effect, Layer } from "effect";
 import type { AssetFingerprint, Vector3 } from "../../src/types/asset";
+import type { EvaluationSpec } from "../../src/types/evaluation";
 import type { Artifact, Evidence, ExecutionOperation, Job } from "../../src/types/job";
-import { compileKnownV1Task } from "../control/TaskCompiler";
+import { compileKnownV1Task, type CompiledTask } from "../control/TaskCompiler";
 import { buildV1ExecutionPlan } from "../control/ExecutionPlanner";
 import { CapabilityRouterLive } from "../control/CapabilityRouter";
 import { evaluateGate1 } from "../control/Gate1";
@@ -29,24 +30,139 @@ export interface V1RunnerOptions {
   blenderScript: string;
   openCloud: OpenCloudOptions;
 }
+const DEFAULT_SCALE_TOLERANCE = 0.01;
+const COLOR_TOLERANCE = 1e-5;
+const LOCKED_V1_COLOR = [0, 0, 0, 1] as const;
+const LOCKED_V1_SCALE = 2;
+
 export function dimensionRatios(before: Vector3, after: Vector3): number[] {
   return (["x", "y", "z"] as const).flatMap((axis) =>
     before[axis] > 1e-8 ? [after[axis] / before[axis]] : after[axis] <= 1e-8 ? [] : [0],
   );
 }
-export function matchesScale(before: Vector3, after: Vector3, factor: number): boolean {
-  const ratios = dimensionRatios(before, after);
+function isNormalizedRgba(value: unknown): value is readonly [number, number, number, number] {
   return (
-    ratios.length > 0 && ratios.every((r) => Number.isFinite(r) && Math.abs(r - factor) <= 0.01)
+    Array.isArray(value) &&
+    value.length === 4 &&
+    value.every((channel) => typeof channel === "number" && Number.isFinite(channel) && channel >= 0 && channel <= 1)
   );
 }
-export function matchesColor(asset: RobloxAssetFingerprint, expected: readonly number[]): boolean {
+
+function matchesRgba(observed: unknown, expected: unknown): boolean {
   return (
-    asset.texturedParts === 0 &&
-    asset.colors.length > 0 &&
-    asset.colors.every(
-      (c) => c.length === expected.length && c.every((v, i) => Math.abs(v - expected[i]) <= 1e-5),
-    )
+    isNormalizedRgba(expected) &&
+    isNormalizedRgba(observed) &&
+    observed.every((channel, index) => Math.abs(channel - expected[index]) <= COLOR_TOLERANCE)
+  );
+}
+
+export function matchesMaterialColors(colors: unknown, expected: unknown): boolean {
+  return (
+    isNormalizedRgba(expected) &&
+    Array.isArray(colors) &&
+    colors.length > 0 &&
+    colors.every((color) => matchesRgba(color, expected))
+  );
+}
+
+export function matchesScale(
+  before: Vector3,
+  after: Vector3,
+  factor: number,
+  tolerance = DEFAULT_SCALE_TOLERANCE,
+): boolean {
+  if (
+    !Number.isFinite(factor) ||
+    factor <= 0 ||
+    !Number.isFinite(tolerance) ||
+    tolerance < 0
+  )
+    return false;
+  const ratios = dimensionRatios(before, after);
+  return (
+    ratios.length > 0 &&
+    ratios.every((ratio) => Number.isFinite(ratio) && Math.abs(ratio - factor) <= tolerance)
+  );
+}
+
+export function matchesColor(asset: RobloxAssetFingerprint, expected: unknown): boolean {
+  return asset.texturedParts === 0 && matchesMaterialColors(asset.colors, expected);
+}
+
+export interface ObjectiveRequirementObservation {
+  readonly passed: boolean;
+  readonly observed: unknown;
+}
+
+/** Evaluate only the objective material and relative-size evidence currently supported by V1. */
+export function evaluateObjectiveRequirement(
+  spec: EvaluationSpec,
+  baseline: Pick<RobloxAssetFingerprint, "dimensions">,
+  observed: RobloxAssetFingerprint,
+): ObjectiveRequirementObservation {
+  if (spec.method === "material_property") {
+    return {
+      passed: matchesColor(observed, spec.expected),
+      observed: observed.colors,
+    };
+  }
+  if (spec.method === "relative_bounding_box") {
+    const expected = spec.expected;
+    const tolerance = spec.tolerance ?? DEFAULT_SCALE_TOLERANCE;
+    return {
+      passed:
+        typeof expected === "number" &&
+        matchesScale(baseline.dimensions, observed.dimensions, expected, tolerance),
+      observed: dimensionRatios(baseline.dimensions, observed.dimensions),
+    };
+  }
+  return { passed: false, observed: null };
+}
+
+/** Keep V1 execution pinned to the locked horse case; pure evaluators remain reusable. */
+export function isLockedV1Task(compiled: CompiledTask): boolean {
+  if (
+    compiled.requirements.length !== 2 ||
+    compiled.requirementIR.length !== 2 ||
+    compiled.evaluations.length !== 2 ||
+    new Set(compiled.requirements.map((requirement) => requirement.id)).size !== 2
+  )
+    return false;
+
+  const color = compiled.requirements.find((requirement) => requirement.type === "material.base_color");
+  const size = compiled.requirements.find((requirement) => requirement.type === "geometry.relative_size");
+  const colorIR = compiled.requirementIR.find((requirement) => requirement.type === "material.base_color");
+  const sizeIR = compiled.requirementIR.find((requirement) => requirement.type === "geometry.relative_size");
+  const colorEvaluation = color && compiled.evaluations.find((spec) => spec.requirementId === color.id);
+  const sizeEvaluation = size && compiled.evaluations.find((spec) => spec.requirementId === size.id);
+
+  return Boolean(
+    color &&
+      color.target === "all_mesh_materials" &&
+      color.mandatory &&
+      matchesRgba(color.expected, LOCKED_V1_COLOR) &&
+      size &&
+      size.target === "asset_bounding_box" &&
+      size.mandatory &&
+      size.expected === LOCKED_V1_SCALE &&
+      colorIR &&
+      colorIR.id === color.id &&
+      colorIR.mandatory &&
+      colorIR.verification === "objective" &&
+      colorIR.target === "all_mesh_materials" &&
+      matchesRgba(colorIR.expected, LOCKED_V1_COLOR) &&
+      sizeIR &&
+      sizeIR.id === size.id &&
+      sizeIR.mandatory &&
+      sizeIR.verification === "objective" &&
+      sizeIR.target === "asset_bounding_box" &&
+      sizeIR.expected === LOCKED_V1_SCALE &&
+      sizeIR.tolerance === DEFAULT_SCALE_TOLERANCE &&
+      colorEvaluation?.method === "material_property" &&
+      matchesRgba(colorEvaluation.expected, LOCKED_V1_COLOR) &&
+      sizeEvaluation?.method === "relative_bounding_box" &&
+      sizeEvaluation.expected === LOCKED_V1_SCALE &&
+      sizeEvaluation.tolerance === DEFAULT_SCALE_TOLERANCE,
   );
 }
 
@@ -178,10 +294,22 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
         yield* addEvidence(evidence("INPUT", "asset.inspection", initial));
         yield* jobs.transition(job.id, "COMPILING");
         const compiled = compileKnownV1Task(input.prompt, initial);
-        if (!compiled || compiled.requirements.length !== 2)
+        if (!compiled || !isLockedV1Task(compiled))
           return yield* Effect.fail(
             new Error("V1 requires the supported black and double-size task"),
           );
+        const colorRequirement = compiled.requirements.find(
+          (requirement) => requirement.type === "material.base_color",
+        )!;
+        const sizeRequirement = compiled.requirements.find(
+          (requirement) => requirement.type === "geometry.relative_size",
+        )!;
+        const colorEvaluation = compiled.evaluations.find(
+          (spec) => spec.requirementId === colorRequirement.id,
+        )!;
+        const sizeEvaluation = compiled.evaluations.find(
+          (spec) => spec.requirementId === sizeRequirement.id,
+        )!;
         yield* jobs.transition(job.id, "PLANNING");
         const plan = buildV1ExecutionPlan(compiled.requirements);
         yield* update((current) => ({
@@ -200,9 +328,20 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
               value: Record<string, unknown>;
             }
           ).value;
-        const materialValid = resultOf("asset.verify_material").valid === true;
+        const blenderMaterial = resultOf("asset.verify_material");
+        const materialValid =
+          blenderMaterial.valid === true &&
+          matchesMaterialColors(blenderMaterial.colors, colorEvaluation.expected);
         const dimensions = resultOf("asset.verify_dimensions").dimensions as Vector3;
-        const dimsValid = matchesScale(initial.dimensions, dimensions, 2);
+        const sizeFactor =
+          typeof sizeEvaluation.expected === "number" ? sizeEvaluation.expected : Number.NaN;
+        const scaleTolerance = sizeEvaluation.tolerance ?? DEFAULT_SCALE_TOLERANCE;
+        const dimsValid = matchesScale(
+          initial.dimensions,
+          dimensions,
+          sizeFactor,
+          scaleTolerance,
+        );
         yield* update((current) => ({
           ...current,
           requirements: current.requirements.map((r) => ({ ...r, status: "EXECUTED" })),
@@ -210,8 +349,11 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
         yield* jobs.transition(job.id, "VERIFYING_GATE_1");
         const proof1 = evidence("BLENDER", "gate1.observed", {
           materialValid,
+          expectedColor: colorEvaluation.expected,
           dimensions,
           baseline: initial.dimensions,
+          expectedScale: sizeEvaluation.expected,
+          scaleTolerance,
         });
         yield* addEvidence(proof1);
         const gate1 = evaluateGate1({
@@ -292,29 +434,29 @@ export function runV1Job(input: V1JobInput, options: V1RunnerOptions) {
         }) as Effect.Effect<RobloxAssetFingerprint, unknown>;
         const proof2 = evidence("ROBLOX", "asset.inspection", { imported, observed });
         yield* addEvidence(proof2);
-        const preserved = matchesScale(baseline.dimensions, observed.dimensions, 2);
-        const black = matchesColor(observed, [0, 0, 0, 1]);
+        const objectiveObservations = compiled.evaluations.map((spec) => {
+          const result = evaluateObjectiveRequirement(spec, baseline, observed);
+          return {
+            requirementId: spec.requirementId,
+            status: result.passed ? ("PASS" as const) : ("FAIL" as const),
+            expected: spec.expected,
+            observed: result.observed,
+            confidence: 1,
+            evidenceIds: [proof2.id],
+          };
+        });
+        const dimensionsPreserved =
+          objectiveObservations.find((result) => result.requirementId === sizeRequirement.id)
+            ?.status === "PASS";
         const gate2 = evaluateGate2({
           imported: true,
           expectedObjectsPresent: baseline.objects === observed.objects,
           expectedMaterialsPresent: observed.materials > 0,
-          dimensionsPreserved: preserved,
+          dimensionsPreserved,
           hierarchyValid: observed.hierarchyValid,
           evidenceIds: [proof2.id],
         });
-        const evaluations = compiled.requirements.map((r) => ({
-          requirementId: r.id,
-          status: (r.type === "material.base_color" ? black : preserved)
-            ? ("PASS" as const)
-            : ("FAIL" as const),
-          expected: r.expected,
-          observed:
-            r.type === "material.base_color"
-              ? observed.colors
-              : dimensionRatios(baseline.dimensions, observed.dimensions),
-          confidence: 1,
-          evidenceIds: [proof2.id],
-        }));
+        const evaluations = objectiveObservations;
         for (const evaluation of evaluations)
           yield* addEvidence(
             evidence(

@@ -5,29 +5,60 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Layer, ManagedRuntime } from "effect";
-import { makeRobloxServiceLayer } from "./RobloxServiceLive";
+import { inspectionCode, makeRobloxServiceLayer, parseRobloxFingerprint } from "./RobloxServiceLive";
 import { RobloxService } from "./RobloxService";
 import { StudioMcpBroker } from "./StudioMcpBroker";
 import type { OpenCloudOptions } from "./RobloxOpenCloudAssetService";
+import { matchesColor } from "./V1JobRunner";
 const asset = { id: "123", studioId: "selected-studio", instanceName: "BloxBot_test" };
-const fingerprint = {
-  assetId: "export",
-  format: "fbx",
-  objects: 1,
-  meshes: 1,
-  vertices: 8,
-  triangles: 12,
-  materials: [{ name: "black", baseColor: [0, 0, 0, 1] }],
-  dimensions: { x: 2, y: 4, z: 6 },
-  transforms: { scale: [1, 1, 1], rotation: [0, 0, 0] },
-  rig: { exists: false },
-  topology: {},
-  issues: [],
-};
+const opaqueBlack = [0, 0, 0, 1] as const;
+function exportFingerprint(baseColor: readonly [number, number, number, number] = opaqueBlack) {
+  return {
+    assetId: "export",
+    format: "fbx",
+    objects: 1,
+    meshes: 1,
+    vertices: 8,
+    triangles: 12,
+    materials: [
+      {
+        name: "flat-material",
+        baseColor,
+        hasTextures: false,
+        textureImages: [],
+        alpha: baseColor[3],
+      },
+    ],
+    dimensions: { x: 2, y: 4, z: 6 },
+    transforms: { scale: [1, 1, 1], rotation: [0, 0, 0] },
+    rig: { exists: false },
+    topology: {},
+    geometry: {
+      omittedMeshes: 0,
+      meshes: [
+        {
+          objectId: "Mesh",
+          vertices: 8,
+          edges: 18,
+          faces: 12,
+          triangles: 12,
+          unmappedFaces: 0,
+          dimensions: { x: 2, y: 4, z: 6 },
+          materialSlots: [
+            { objectId: "Mesh", index: 0, materialName: "flat-material", assignedFaces: 12 },
+          ],
+        },
+      ],
+    },
+    issues: [],
+  };
+}
+const fingerprint = exportFingerprint();
 const observed = {
   objects: 1,
+  meshParts: 1,
   materials: 1,
-  colors: [[0, 0, 0, 1]],
+  colors: [opaqueBlack],
   texturedParts: 0,
   dimensions: { x: 2, y: 4, z: 6 },
   hierarchyValid: true,
@@ -37,13 +68,32 @@ function runtime(
   respond?: (name: string, args: Record<string, unknown>) => CallToolResult,
   openCloud: Partial<OpenCloudOptions> = {},
 ) {
-  const calls = vi.fn((name: string, args: Record<string, unknown>) =>
-    Effect.succeed(
-      respond?.(name, args) ?? {
-        content: [{ type: "text" as const, text: JSON.stringify({ ...observed, texturedParts }) }],
-      },
-    ),
-  );
+  let projectedColor: readonly number[] = opaqueBlack;
+  const calls = vi.fn((name: string, args: Record<string, unknown>) => {
+    const custom = respond?.(name, args);
+    if (custom) return Effect.succeed(custom);
+    const code = typeof args.code === "string" ? args.code : "";
+    if (code.includes("local expectedColor =")) {
+      const receiptColor = code.match(/baseColor=\{([^}]+)\}/)?.[1].split(",").map(Number);
+      if (receiptColor) projectedColor = receiptColor;
+      return Effect.succeed({
+        content: [
+          {
+            type: "text" as const,
+            text: JSON.stringify({ changedMeshes: observed.meshParts, baseColor: projectedColor }),
+          },
+        ],
+      });
+    }
+    const result = {
+      ...observed,
+      colors: Array.from({ length: observed.objects }, () => projectedColor),
+      texturedParts,
+    };
+    return Effect.succeed({
+      content: [{ type: "text" as const, text: JSON.stringify(result) }],
+    });
+  });
   const broker = Layer.succeed(StudioMcpBroker, {
     info: { url: "test" },
     listTools: Effect.succeed({ tools: [] }),
@@ -94,7 +144,8 @@ describe("Verified material projection", () => {
       const result = await rt.runPromise(
         Effect.flatMap(RobloxService, (s) => s.applyVerifiedMaterial(asset, fingerprint)),
       );
-      expect(result.colors).toEqual([[0, 0, 0, 1]]);
+      expect(result.colors).toEqual([opaqueBlack]);
+      expect(result.meshParts).toBe(1);
       expect(calls).toHaveBeenCalledTimes(3);
       expect(
         calls.mock.calls.every(
@@ -104,8 +155,26 @@ describe("Verified material projection", () => {
             args.datamodel_type === "Edit",
         ),
       ).toBe(true);
-      expect(calls.mock.calls[1][1].code).toContain("item.Color = Color3.new(0, 0, 0)");
+      expect(calls.mock.calls[1][1].code).toContain("item.Color = expectedColor");
+      expect(calls.mock.calls[1][1].code).toContain("local expectedMeshes = 1");
+      expect(calls.mock.calls[1][1].code).toContain('assert(item.MaterialVariant == "", "Unexpected material variant")');
       expect(calls.mock.calls[2][1].code).not.toContain("item.Color =");
+    } finally {
+      await rt.dispose();
+    }
+  });
+  it("projects a verified non-black opaque base color instead of forcing black", async () => {
+    const color = [0.2, 0.4, 0.6, 1] as const;
+    const { rt, calls } = runtime();
+    try {
+      const result = await rt.runPromise(
+        Effect.flatMap(RobloxService, (service) =>
+          service.applyVerifiedMaterial(asset, exportFingerprint(color)),
+        ),
+      );
+      expect(result.colors).toEqual([color]);
+      expect(calls.mock.calls[1][1].code).toContain("Color3.new(0.2, 0.4, 0.6)");
+      expect(calls.mock.calls[1][1].code).toContain("baseColor={0.2,0.4,0.6,1}");
     } finally {
       await rt.dispose();
     }
@@ -125,6 +194,113 @@ describe("Verified material projection", () => {
       await rt.dispose();
     }
   });
+  it("rejects multi-material exports with an explicit unsupported reason", async () => {
+    const multiMaterial = {
+      ...fingerprint,
+      materials: [
+        ...fingerprint.materials,
+        { ...fingerprint.materials[0], name: "second-material" },
+      ],
+    };
+    const { rt, calls } = runtime();
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, multiMaterial),
+          ),
+        ),
+      ).rejects.toThrow("multi-material and per-mesh-specific projection are unsupported");
+      expect(calls).not.toHaveBeenCalled();
+    } finally {
+      await rt.dispose();
+    }
+  });
+  it("rejects ambiguous mesh-to-material evidence before changing Studio", async () => {
+    const ambiguous = {
+      ...fingerprint,
+      geometry: {
+        ...fingerprint.geometry,
+        meshes: fingerprint.geometry.meshes.map((mesh) => ({
+          ...mesh,
+          materialSlots: [{ ...mesh.materialSlots[0], materialName: "unmapped-material" }],
+        })),
+      },
+    };
+    const { rt, calls } = runtime();
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, ambiguous),
+          ),
+        ),
+      ).rejects.toThrow("not mapped to the single verified material");
+      expect(calls).not.toHaveBeenCalled();
+    } finally {
+      await rt.dispose();
+    }
+  });
+  it("rejects an imported mesh count that cannot be matched to export evidence", async () => {
+    const { rt, calls } = runtime(0, () => ({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ ...observed, meshParts: 0 }),
+        },
+      ],
+    }));
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, fingerprint),
+          ),
+        ),
+      ).rejects.toThrow("Imported mesh count does not match the verified export material mapping");
+      expect(calls).toHaveBeenCalledTimes(1);
+    } finally {
+      await rt.dispose();
+    }
+  });
+  it.each([
+    ["unknown texture status", { hasTextures: undefined, textureImages: undefined }],
+    ["texture-bearing material", { hasTextures: true, textureImages: ["diffuse.png"] }],
+  ])("rejects %s from export evidence", async (_label, textureEvidence) => {
+    const withTextureStatus = {
+      ...fingerprint,
+      materials: [{ ...fingerprint.materials[0], ...textureEvidence }],
+    };
+    const { rt, calls } = runtime();
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, withTextureStatus),
+          ),
+        ),
+      ).rejects.toThrow("texture/material projection is unsupported");
+      expect(calls).not.toHaveBeenCalled();
+    } finally {
+      await rt.dispose();
+    }
+  });
+  it("rejects non-opaque alpha from export evidence", async () => {
+    const translucent = exportFingerprint([0.2, 0.4, 0.6, 0.5]);
+    const { rt, calls } = runtime();
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, translucent),
+          ),
+        ),
+      ).rejects.toThrow("Non-opaque material alpha");
+      expect(calls).not.toHaveBeenCalled();
+    } finally {
+      await rt.dispose();
+    }
+  });
   it("does not overwrite unexpected imported texture overlays", async () => {
     const { rt, calls } = runtime(1);
     try {
@@ -132,8 +308,36 @@ describe("Verified material projection", () => {
         rt.runPromise(
           Effect.flatMap(RobloxService, (s) => s.applyVerifiedMaterial(asset, fingerprint)),
         ),
-      ).rejects.toThrow();
+      ).rejects.toThrow("appearance overlays; refusing to overwrite");
       expect(calls).toHaveBeenCalledTimes(1);
+    } finally {
+      await rt.dispose();
+    }
+  });
+
+  it("counts a non-empty MaterialVariant as an appearance overlay and fails material compliance closed", async () => {
+    const generatedInspection = inspectionCode(asset.instanceName);
+    expect(generatedInspection).toContain('item.MaterialVariant ~= ""');
+
+    // Studio inspection reports the variant through the legacy overlay count.
+    const withVariant = parseRobloxFingerprint({
+      ...observed,
+      texturedParts: 1,
+    });
+    expect(matchesColor(withVariant, opaqueBlack)).toBe(false);
+
+    const { rt, calls } = runtime(1);
+    try {
+      await expect(
+        rt.runPromise(
+          Effect.flatMap(RobloxService, (service) =>
+            service.applyVerifiedMaterial(asset, fingerprint),
+          ),
+        ),
+      ).rejects.toThrow("appearance overlays; refusing to overwrite");
+      // The preflight prevents the projection script from clearing or masking the variant.
+      expect(calls).toHaveBeenCalledTimes(1);
+      expect(calls.mock.calls[0][1].code).toContain('item.MaterialVariant ~= ""');
     } finally {
       await rt.dispose();
     }

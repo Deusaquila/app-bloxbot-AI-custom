@@ -33,7 +33,8 @@ bpy.ops.wm.read_factory_settings(use_empty=True)
 args = sys.argv[1:]
 fixtures = {
     "multi-root", "rotated-multi-material", "centimeter-units", "textured-material",
-    "rigged", "non-manifold", "loose-geometry", "empty",
+    "rigged", "animated-rigged", "non-manifold", "loose-geometry", "disconnected-components",
+    "degenerate-face", "empty",
 }
 fixture = next((arg for arg in args[:-1] if arg in fixtures), "multi-root")
 destination = args[-1]
@@ -70,7 +71,7 @@ elif fixture == "textured-material":
     shader = surface.node_tree.nodes.get("Principled BSDF")
     surface.node_tree.links.new(texture.outputs["Color"], shader.inputs["Base Color"])
     cube("TexturedCube", 2, (0, 0, 0), surface)
-elif fixture == "rigged":
+elif fixture in {"rigged", "animated-rigged"}:
     armature_data = bpy.data.armatures.new("TestRig")
     armature = bpy.data.objects.new("TestRig", armature_data)
     bpy.context.scene.collection.objects.link(armature)
@@ -81,13 +82,22 @@ elif fixture == "rigged":
     bone.head = (0, 0, -1)
     bone.tail = (0, 0, 1)
     bpy.ops.object.mode_set(mode="OBJECT")
+    if fixture == "animated-rigged":
+        armature.animation_data_create()
+        armature.animation_data.action = bpy.data.actions.new(name="TestWalkCycle")
+        pose_bone = armature.pose.bones["Root"]
+        pose_bone.rotation_euler.x = 0
+        pose_bone.keyframe_insert(data_path="rotation_euler", frame=1)
+        pose_bone.rotation_euler.x = math.radians(25)
+        pose_bone.keyframe_insert(data_path="rotation_euler", frame=12)
+        bpy.context.scene.frame_end = 12
     mesh = cube("WeightedCube", 2, (0, 0, 0), material("RigSource", (0.7, 0.4, 0.1, 1)))
     parent_keep_world(mesh, armature)
     group = mesh.vertex_groups.new(name="Root")
     group.add([vertex.index for vertex in mesh.data.vertices], 1.0, "REPLACE")
     modifier = mesh.modifiers.new(name="Armature", type="ARMATURE")
     modifier.object = armature
-elif fixture in {"non-manifold", "loose-geometry"}:
+elif fixture in {"non-manifold", "loose-geometry", "disconnected-components", "degenerate-face"}:
     vertices = [
         (-1, -1, -1), (1, -1, -1), (1, 1, -1), (-1, 1, -1),
         (-1, -1, 1), (1, -1, 1), (1, 1, 1), (-1, 1, 1),
@@ -99,9 +109,15 @@ elif fixture in {"non-manifold", "loose-geometry"}:
     edges = []
     if fixture == "non-manifold":
         faces = faces[:-1]
-    else:
+    elif fixture == "loose-geometry":
         vertices.extend([(3, 0, 0), (4, 0, 0)])
         edges.append((8, 9))
+    elif fixture == "disconnected-components":
+        vertices.extend([(x + 4, y, z) for x, y, z in vertices[:8]])
+        faces.extend([tuple(index + 8 for index in face) for face in faces[:]])
+    elif fixture == "degenerate-face":
+        vertices.extend([(3, 0, 0), (4, 0, 0), (5, 0, 0)])
+        faces.append((8, 9, 10))
     mesh_data = bpy.data.meshes.new("QualityCaseMesh")
     mesh_data.from_pydata(vertices, edges, faces)
     mesh_data.update()
@@ -111,4 +127,8 @@ elif fixture in {"non-manifold", "loose-geometry"}:
 elif fixture == "empty":
     pass
 
-bpy.ops.export_scene.fbx(filepath=destination, bake_anim=False)
+bpy.ops.export_scene.fbx(
+    filepath=destination,
+    bake_anim=fixture == "animated-rigged",
+    bake_anim_use_all_actions=fixture == "animated-rigged",
+)

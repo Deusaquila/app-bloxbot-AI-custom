@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { ExecutionOperation, ExecutionPlan, Requirement } from "../../src/types/job";
+import { mapV1Requirement, validateV1ExecutionPlan } from "./V1ExecutionPlanValidator";
 
 function operation(
   capability: string,
@@ -22,23 +23,34 @@ function operation(
 }
 
 export function buildV1ExecutionPlan(requirements: readonly Requirement[]): ExecutionPlan {
+  const mappings = requirements.map(mapV1Requirement);
   const inspect = operation("asset.inspect", [], [], {}, "BLENDER");
-  const mutations = requirements.flatMap((requirement) => {
-    if (requirement.type === "material.base_color") {
-      return [operation("material.set_base_color", [requirement.id], [inspect.id], { expected: requirement.expected }, "BLENDER")];
-    }
-    if (requirement.type === "geometry.relative_size") {
-      return [operation("transform.scale_uniform", [requirement.id], [inspect.id], { expected: requirement.expected }, "BLENDER")];
-    }
-    return [];
+  const mutations = requirements.map((requirement, index) =>
+    operation(
+      mappings[index].mutationCapability,
+      [requirement.id],
+      [inspect.id],
+      { expected: requirement.expected },
+      "BLENDER",
+    ),
+  );
+  const verify = requirements.map((requirement, index) => {
+    const mutation = mutations[index];
+    return operation(
+      mappings[index].verificationCapability,
+      [requirement.id],
+      [mutation.id],
+      { expected: requirement.expected },
+      "BLENDER",
+    );
   });
-  const verify = requirements.flatMap((requirement) => {
-    const dependency = mutations.find((candidate) => candidate.requirementIds.includes(requirement.id));
-    if (!dependency) return [];
-    const capability =
-      requirement.type === "material.base_color" ? "asset.verify_material" : "asset.verify_dimensions";
-    return [operation(capability, [requirement.id], [dependency.id], { expected: requirement.expected }, "BLENDER")];
-  });
-  const exportFbx = operation("asset.export_fbx", requirements.map((r) => r.id), verify.map((v) => v.id), {}, "BLENDER");
-  return { operations: [inspect, ...mutations, ...verify, exportFbx] };
+  const exportFbx = operation(
+    "asset.export_fbx",
+    requirements.map((requirement) => requirement.id),
+    verify.map((verification) => verification.id),
+    {},
+    "BLENDER",
+  );
+  const candidate: ExecutionPlan = { operations: [inspect, ...mutations, ...verify, exportFbx] };
+  return validateV1ExecutionPlan(requirements, candidate);
 }

@@ -54,6 +54,50 @@ export const RequirementStatusSchema = Schema.Literal(
 );
 export type RequirementStatus = typeof RequirementStatusSchema.Type;
 
+/**
+ * Typed planning contract for compiler and reasoning-service output.
+ *
+ * This is deliberately separate from RequirementSchema below: persisted V1 jobs
+ * keep their original wire shape, while new compiler output has constrained,
+ * domain-specific target and expected-value types.
+ */
+const RequirementIRIdSchema = Schema.String.pipe(Schema.minLength(1), Schema.maxLength(128));
+const MaterialColorSchema = Schema.Tuple(
+  Schema.Number.pipe(Schema.between(0, 1)),
+  Schema.Number.pipe(Schema.between(0, 1)),
+  Schema.Number.pipe(Schema.between(0, 1)),
+  Schema.Number.pipe(Schema.between(0, 1)),
+);
+const MaterialIdTargetSchema = Schema.Struct({
+  kind: Schema.Literal("material_ids"),
+  ids: Schema.Array(RequirementIRIdSchema),
+});
+
+export const RequirementIRSchema = Schema.Union(
+  Schema.Struct({
+    id: RequirementIRIdSchema,
+    type: Schema.Literal("material.base_color"),
+    target: Schema.Union(
+      Schema.Literal("all_mesh_materials", "all_visible_meshes"),
+      MaterialIdTargetSchema,
+    ),
+    expected: MaterialColorSchema,
+    verification: Schema.Literal("objective", "semantic"),
+    mandatory: Schema.Boolean,
+  }),
+  Schema.Struct({
+    id: RequirementIRIdSchema,
+    type: Schema.Literal("geometry.relative_size"),
+    target: Schema.Literal("asset_bounding_box"),
+    expected: Schema.Number.pipe(Schema.positive()),
+    verification: Schema.Literal("objective", "semantic"),
+    mandatory: Schema.Boolean,
+    tolerance: Schema.optional(Schema.Number.pipe(Schema.between(0, 1))),
+  }),
+);
+export type RequirementIR = typeof RequirementIRSchema.Type;
+
+/** V1 persistence contract. Keep this shape backward-compatible with stored jobs. */
 export const RequirementSchema = Schema.Struct({
   id: NonEmptyString,
   type: NonEmptyString,

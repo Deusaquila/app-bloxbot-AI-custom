@@ -10,10 +10,13 @@ export interface RobloxAssetRef {
 
 export interface RobloxAssetFingerprint {
   objects: number;
+  /** Number of imported MeshParts, when reported by the Studio adapter. */
+  meshParts?: number;
   materials: number;
   dimensions: { x: number; y: number; z: number };
   hierarchyValid: boolean;
   colors: readonly (readonly number[])[];
+  /** Legacy overlay count: includes textures, SurfaceAppearance, decals, and non-empty MeshPart material variants. */
   texturedParts: number;
 }
 

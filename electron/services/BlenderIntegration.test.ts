@@ -24,6 +24,8 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
     "rigged",
     "non-manifold",
     "loose-geometry",
+    "disconnected-components",
+    "degenerate-face",
   ])(
     "preserves black material and absolute 2x scale through the %s FBX fixture",
     async (fixture) => {
@@ -67,24 +69,67 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
         blender.runPromise(Effect.flatMap(BlenderService, (b) => b.executeCapability(name, input)));
       const initial = (await invoke("asset.inspect")).value as AssetFingerprint;
       expect(initial.meshes).toBeGreaterThan(0);
+      expect(initial.geometry?.meshes).toHaveLength(initial.meshes);
+      expect(initial.geometry?.omittedMeshes).toBe(0);
+      expect(initial.structure?.omittedObjects).toBe(0);
+      expect(initial.structure?.objectNodes.length).toBe(initial.objects);
+      expect(
+        initial.geometry?.meshes?.every((mesh) =>
+          mesh.materialSlots.every((slot) => slot.objectId === mesh.objectId),
+        ),
+      ).toBe(true);
+      if (fixture === "multi-root") {
+        expect(initial.geometry?.meshes?.every((mesh) => mesh.unmappedFaces === mesh.faces)).toBe(true);
+      } else {
+        expect(initial.geometry?.meshes?.every((mesh) => mesh.unmappedFaces === 0)).toBe(true);
+      }
       if (["multi-root", "rotated-multi-material", "centimeter-units"].includes(fixture)) {
         expect(initial.meshes).toBeGreaterThanOrEqual(2);
       }
       expect(initial.triangles).toBeGreaterThan(0);
+      if (fixture === "multi-root") {
+        expect(initial.structure?.rootObjects).toBeGreaterThanOrEqual(2);
+        expect(initial.geometry?.meshes?.map((mesh) => mesh.objectId).join(" ")).toMatch(/LeftCube/);
+        expect(initial.geometry?.meshes?.map((mesh) => mesh.objectId).join(" ")).toMatch(/RightCube/);
+      }
+      if (fixture === "rotated-multi-material") {
+        expect(initial.structure?.parentedObjects).toBeGreaterThan(0);
+        expect(initial.structure?.objectNodes.some((node) => node.parentId !== undefined)).toBe(true);
+        expect(initial.geometry?.meshes?.some((mesh) =>
+          mesh.materialSlots.some((slot) => slot.assignedFaces > 0 && slot.materialName !== undefined),
+        )).toBe(true);
+        expect(initial.materials.every((m) => m.hasTextures === false && m.alpha === 1)).toBe(true);
+      }
       if (fixture === "textured-material") {
         expect(initial.materials.some((m) => m.baseColor === undefined)).toBe(true);
+        expect(initial.materials.some((m) =>
+          m.hasTextures === true && m.textureImages?.some((name) => name.includes("GeneratedColorGrid")),
+        )).toBe(true);
       }
       if (fixture === "rigged") {
         expect(initial.rig.exists).toBe(true);
         expect(initial.rig.bones).toBeGreaterThan(0);
+        expect(initial.rig.deformBones).toBeGreaterThan(0);
+        expect(initial.rig.skinnedMeshes).toBeGreaterThan(0);
+        expect(initial.rig.weightedVertices).toBeGreaterThan(0);
+        expect(initial.rig.unweightedVertices).toBe(0);
       }
       if (fixture === "non-manifold") {
         expect(initial.topology.manifoldRatio).toBeLessThan(1);
+        expect(initial.topology.boundaryEdges).toBeGreaterThan(0);
         expect(initial.issues.map((issue) => issue.code)).toContain("NON_MANIFOLD_EDGES");
       }
       if (fixture === "loose-geometry") {
         expect(initial.topology.looseGeometry).toBe(true);
+        expect(initial.topology.looseVertices).toBeGreaterThan(0);
         expect(initial.issues.map((issue) => issue.code)).toContain("LOOSE_GEOMETRY");
+      }
+      if (fixture === "disconnected-components") {
+        expect(initial.geometry?.disconnectedComponents).toBe(1);
+        expect(initial.geometry?.meshes?.[0].vertices).toBeGreaterThan(8);
+      }
+      if (fixture === "degenerate-face") {
+        expect(initial.topology.degenerateFaces).toBeGreaterThan(0);
       }
       await Promise.all([
         invoke("material.set_base_color", { expected: [0, 0, 0, 1] }),
@@ -94,7 +139,10 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
         (await invoke("asset.verify_material", { expected: [0, 0, 0, 1] })).value,
       ).toMatchObject({ valid: true });
       const final = (await invoke("asset.inspect")).value as AssetFingerprint;
-      expect(matchesScale(initial.dimensions, final.dimensions, 2)).toBe(true);
+      expect(
+        matchesScale(initial.dimensions, final.dimensions, 2),
+        `${fixture}: ${JSON.stringify({ initial: initial.dimensions, final: final.dimensions })}`,
+      ).toBe(true);
       await invoke("transform.scale_uniform", { expected: 2 });
       const retry = (await invoke("asset.inspect")).value as AssetFingerprint;
       expect(matchesScale(initial.dimensions, retry.dimensions, 2)).toBe(true);
@@ -137,6 +185,58 @@ describe.skipIf(!executable)("Real Blender round trip", () => {
     },
     180_000,
   );
+
+  it("reports animation clip names on an animated rigged FBX", async () => {
+    const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-animation-"));
+    dirs.push(root);
+    const source = join(root, "source.fbx");
+    const fixtureScript = await readFile("electron/blender/create_test_fbx.py", "utf8");
+    await Effect.runPromise(
+      runBlenderScript(
+        { executable: executable! },
+        {
+          script: fixtureScript,
+          scriptPath: join(root, "fixture.py"),
+          args: ["animated-rigged", source],
+        },
+      ),
+    );
+    const services = Layer.merge(ArtifactServiceLive, makeWorkspaceServiceLayer(root));
+    const runtime = ManagedRuntime.make(services);
+    const workspace = await runtime.runPromise(
+      Effect.flatMap(WorkspaceService, (service) => service.ensureJob("animation-test")),
+    );
+    const artifact = await runtime.runPromise(
+      Effect.flatMap(ArtifactService, (service) =>
+        service.registerFile({
+          jobId: "animation-test",
+          type: "INPUT_FBX",
+          sourcePath: source,
+          destinationDirectory: workspace.input,
+        }),
+      ),
+    );
+    const pipeline = await readFile("electron/blender/v1_pipeline.py", "utf8");
+    const blender = ManagedRuntime.make(
+      makeBlenderServiceLayer({
+        executable: executable!,
+        assetId: "animated-asset",
+        inputArtifact: artifact,
+        workspace,
+        script: pipeline,
+      }).pipe(Layer.provide(ArtifactServiceLive)),
+    );
+    try {
+      const inspected = await blender.runPromise(
+        Effect.flatMap(BlenderService, (service) => service.inspectAsset("animated-asset", artifact)),
+      );
+      expect(inspected.rig.animationClips?.some((name) => name.includes("TestWalkCycle"))).toBe(true);
+      expect(inspected.rig.exists).toBe(true);
+    } finally {
+      await blender.dispose();
+      await runtime.dispose();
+    }
+  }, 60_000);
 
   it("rejects an FBX with no mesh before it can be treated as an asset", async () => {
     const root = await mkdtemp(join(tmpdir(), "bloxbot-blender-empty-"));
