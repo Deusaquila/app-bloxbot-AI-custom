@@ -210,3 +210,23 @@ ordinary suite). `pnpm test:blender` separately ran and passed all four cases wi
 the installed Blender 5.2.2 LTS. The live Explorer view was verified through the
 actual application and broker. No new Open Cloud or Studio asset import was part of
 this follow-up.
+
+## Frozen prompts and Studio import failure gates on 2026-09-27
+
+The compiler regression set now freezes three supported complete prompts (the
+locked Swedish instruction and two enumerated English forms) plus four labeled
+rejections for negation, scoped targets, contradiction and an unsupported extra
+rotation. It protects the current explicit boundary; it is not a natural-language
+accuracy benchmark.
+
+Studio adapter tests now verify that a disconnected selected instance and a
+non-Edit Studio mode both stop before any Open Cloud request. A separate case
+simulates successful Open Cloud creation and polling followed by Studio rejecting
+`insert_asset`; the service returns failure and does not proceed to inspection.
+Together with the existing Open Cloud timeout, malformed response, moderation,
+untrusted-operation-path and no-create-retry tests, this covers local adapter
+failure boundaries without a live upload or place mutation.
+
+Focused prompt and Studio adapter tests passed (14 tests), and `pnpm typecheck`
+passed. Live disconnect and contract-change cases remain planned; no autonomous
+learning or new Gate 2 claim is introduced.

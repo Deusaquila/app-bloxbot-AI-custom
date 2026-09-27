@@ -18,8 +18,12 @@ const asset = {
 };
 
 describe("compileKnownV1Task", () => {
-  it("compiles the first Swedish acceptance prompt without an LLM", () => {
-    const result = compileKnownV1Task("Gör den svart och dubbelt så stor.", asset);
+  it.each([
+    "Gör den svart och dubbelt så stor.",
+    "MAKE IT BLACK AND TWICE AS LARGE!",
+    "make it black and double the size",
+  ])("compiles only the enumerated complete objective prompt: %s", (prompt) => {
+    const result = compileKnownV1Task(prompt, asset);
     expect(result?.requirements.map((r) => r.type)).toEqual([
       "material.base_color",
       "geometry.relative_size",
