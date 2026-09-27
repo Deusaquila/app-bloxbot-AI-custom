@@ -10,7 +10,8 @@ unmarked cases have been implemented or tested.
 
 | Case | Input and prompt | Blender | Open Cloud | Selected Studio | Prompt requirements | Status |
 | --- | --- | --- | --- | --- | --- | --- |
-| `horse_black_2x` | Supplied horse FBX; `Gör den svart och dubbelt så stor.` | Real Blender 4.2.3, Gate 1 and FBX round-trip passed | Uploaded exact export hash | Exact selected instance inspected; Gate 2 passed | Black and 2× both passed | Verified through CLI on 2026-09-26; desktop button path still unverified |
+| `horse_black_2x` | Supplied horse FBX; `Gör den svart och dubbelt så stor.` | Real Blender 4.2.3, Gate 1 and FBX round-trip passed | Uploaded exact export hash | Exact selected instance inspected; Gate 2 passed | Black and 2× both passed | Verified through CLI on 2026-09-26 |
+| `horse_black_2x_desktop` | Same supplied horse and locked prompt | Real Blender 4.2.3, Gate 1 and independent FBX round-trip passed | New output asset `105026615135962` | Exact selected instance inspected and reinspected after runtime restart | Black and 2× both passed | Verified through Electron buttons on 2026-09-27; persisted result visible after full app restart |
 
 The source of truth for that result is [V1_INTEGRATION.md](V1_INTEGRATION.md),
 the persisted Job and its evidence. A local version-1 measurement can be derived

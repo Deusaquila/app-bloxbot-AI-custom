@@ -1,8 +1,8 @@
 # BloxBot autonomous asset pipeline — Codex handoff
 
-## Integration update (2026-09-26)
+## Integration update (2026-09-27)
 
-The locked horse acceptance passed through real Blender, Open Cloud, and the explicitly selected Studio instance. Job `9f545a52-2452-4d95-bdc5-c2df97e91d11` reached `COMPLETED`; Gate 1, Gate 2, and both mandatory requirements passed. The desktop button-driven path has not yet been validated; see [V1_INTEGRATION.md](V1_INTEGRATION.md) and [V1_LOCAL_SMOKE_TEST.md](V1_LOCAL_SMOKE_TEST.md) for the evidence and remaining smoke test.
+The locked horse acceptance passed through real Blender, Open Cloud, and the explicitly selected Studio instance, both through the CLI and the Electron buttons. Desktop Job `e490280e-d499-4491-a783-9812da7a2db7` reached `COMPLETED`; Gate 1, Gate 2, and both mandatory requirements passed. Exact-instance reinspection and a full app restart preserved the result. The earlier CLI Job is `9f545a52-2452-4d95-bdc5-c2df97e91d11`. See [V1_INTEGRATION.md](V1_INTEGRATION.md) for evidence and separate legacy Explorer/layout defects observed during the desktop test. The local evaluation baseline is defined in [ASSET_EVALUATION_MATRIX.md](ASSET_EVALUATION_MATRIX.md); additional asset/prompt families and autonomous learning remain future work.
 
 ## Mission
 
@@ -239,7 +239,7 @@ Roblox Studio MCP already has multi-Studio concepts and explicit Studio selectio
 
 ## Immediate priorities from the original handoff
 
-This checklist records the state before the V1 path was wired and exercised. Use the integration update and current tests above as the source of truth; the desktop UI smoke test remains outstanding.
+This checklist records the state before the V1 path was wired and exercised. Use the integration update and current tests above as the source of truth; the desktop UI smoke test has now passed.
 
 Before adding learning or UI polish:
 
@@ -282,7 +282,7 @@ This checklist describes pre-integration concerns and is historical, not a list 
 
 ## Post-V1 direction - do not implement prematurely
 
-The current V1 capabilities now have one deterministic, versioned procedure each. The next implementation slice is to finish the desktop acceptance smoke test, then keep the Procedure Registry explicit and deterministic before introducing any Policy Registry or AI fallback. Do not start learning, experiments, or multimodal scoring as part of this slice.
+The current V1 capabilities now have one deterministic, versioned procedure each, and desktop acceptance has passed. A versioned local observation separates transfer reliability from prompt compliance. Next, resolve the documented legacy Explorer/layout defects and expand the frozen asset/prompt matrix with generated fixtures and explicit failure cases. Keep the Procedure Registry explicit and deterministic before introducing any Policy Registry or AI fallback. Do not infer readiness for learning, experiments, or multimodal scoring from one successful horse case.
 
 Later architecture should support:
 - Procedure Registry: how capabilities are implemented

@@ -99,9 +99,9 @@ Job, contract, restart verification, independent Blender round-trip and viewport
 capture. Original/derived/export artifacts and Blender logs remain under `jobs`.
 Asset binaries and credential files are not committed.
 
-The acceptance ran through the application services using the repository CLI.
-The desktop IPC/UI path is wired and built; a full desktop button-driven acceptance
-run was not performed. Studio window capture timed out; MCP viewport capture worked.
+The original acceptance ran through the application services using the repository
+CLI. A separate desktop button-driven acceptance passed on 2026-09-27 (below).
+Studio window capture timed out in the original run; MCP viewport capture worked.
 The installed Roblox mcp.bat prints malformed trailing batch lines on shutdown;
 live MCP operations succeed. The launcher was not modified.
 
@@ -127,3 +127,59 @@ Studio ID, but that test uses a fake API and is not a live desktop acceptance.
 The first versioned, local benchmark observation was derived from the existing
 completed horse Job without re-running an upload. It records transfer milestones
 and mandatory prompt requirements separately. See [ASSET_EVALUATION_MATRIX.md](ASSET_EVALUATION_MATRIX.md).
+
+## Desktop acceptance on 2026-09-27
+
+After Windows input access was restored, the current branch was started with
+`pnpm dev`. The run was initiated through the actual Electron UI: new session,
+explicit `Place1` selection, Asset job, native FBX file picker, creator user ID
+`4974439157`, then Run asset job. No CLI command created this Job.
+
+- Job `e490280e-d499-4491-a783-9812da7a2db7`: **COMPLETED**, all 11 operations
+  SUCCEEDED, Gate 1 and Gate 2 passed, both mandatory requirements PASS.
+- The UI visibly progressed from INSPECTING to COMPLETED and displayed
+  `2/2 requirements passed`.
+- Input SHA-256 remains `20fb7fee8310a13e87dd4d4cc865bd33b62b0af49da71b03cd629a7fd136bf5b`
+  (837,644 bytes). Blender 4.2.3 LTS inspected 13 meshes, 5,068 vertices and 9,499
+  triangles before mutation.
+- Export: 779,580 bytes, SHA-256
+  `3d590ee9bfe50cfcda0076265a2dcb36a29c9c1c576f81894909c3f16567f57e`.
+- Open Cloud output operation `operations/608ecd7c-9cc2-4359-a972-2541aaa79e56`:
+  SUCCEEDED, asset `105026615135962`, revision 1. Reference asset `86563116361752`,
+  revision 1, operation `operations/0fafe24d-82ad-47f7-bf6f-91151ff74864`.
+  Moderation state was again omitted; no moderation approval is inferred.
+- Selected Studio `7485867d-33df-4782-9476-ac122e0765bf`; exact output instance
+  `Workspace.BloxBot_27df081e_dada_4f3c_aae5_8a30c91759df`.
+- All 13 inspected mesh parts had black RGBA `[0,0,0,1]`, no texture overlays,
+  and a valid hierarchy after the recorded material projection.
+- Studio output XYZ extents: `(0.5407406092, 1.6889648438, 1.9627684355)`;
+  reference: `(0.2703703046, 0.8444824219, 0.9813842177)`. All three ratios were 2.
+- A fresh runtime loaded the persisted Job unchanged and independently reinspected
+  this exact Studio instance. A full Electron restart then displayed the same
+  completed Job and `2/2` results, without rerunning it.
+- Independent Blender 4.2.3 reimport of the exact uploaded FBX retained black,
+  13 meshes, 9,499 triangles and doubled XYZ extents
+  `(0.5407410562, 1.9627684355, 1.6889649189)`.
+- Live tools/list again returned 28 tools with the same contract hash shown above.
+
+Local evidence is under
+`C:\Users\JM\BloxBot\evidence\e490280e-d499-4491-a783-9812da7a2db7`:
+completed Job, contract, restart reinspection, FBX round-trip inspection and Studio
+viewport capture. Original and derived assets plus Blender logs are retained under
+the corresponding `jobs` directory. The versioned observation at
+`evaluations/e490280e-d499-4491-a783-9812da7a2db7-v1.json` records all seven transfer
+milestones and both prompt requirements as PASS.
+
+Validation on this run: `pnpm typecheck`; `pnpm test` (204 application, 44 control
+and 8 release tests passed; one external Blender test skipped in the ordinary
+suite); `pnpm test:blender` (one real integration test passed with the PATH-selected
+Blender 5.2.2 LTS); and `pnpm check:v1-environment` passed. The desktop horse run
+and its independent round-trip used Blender 4.2.3 LTS as recorded above.
+
+Remaining UI observations: the legacy Explorer returned an instance-tree error,
+and the Asset job popover was clipped with Explorer open in a narrow window.
+Closing Explorer made the form fully usable. These are separate follow-up defects;
+the V1 Job adapter's explicit-instance import and inspection succeeded. The viewport
+capture includes earlier diagnostic models in the disposable place and is not a
+standardized visual-quality evaluation. This run proves the locked objective
+scenario, not arbitrary prompt support or autonomous learning.
